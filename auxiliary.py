@@ -70,14 +70,12 @@ binstr2int = lambda x: int(x, base=2)
 # transform each substring into its integer representation.
 def binstr2int_eqlen(binstr, z):
     
-    mx = [binstr2int(binstr[x:x+z]) for x in range(0,len(binstr),z)]
+    mx = [int(binstr[x:x+z],base=2) for x in range(0,len(binstr),z)]
     return mx
 
 
 def hamming_distance(str1, str2):
-    if len(str1) != len(str2):
-        return None
-    return len([1 for x in range(len(str1)) if str1[x]!=str2[x]])
+    return len([1 for x,y in zip(str1,str2) if x!=y])
 
 ###############################################################################
 

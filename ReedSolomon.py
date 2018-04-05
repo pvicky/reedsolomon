@@ -136,10 +136,7 @@ def RS_generator(n, k, primitive_poly):
 
 
 # calculating distance of Berlekamp-Massey algorithm at kth iteration
-def BM_delta(syndromes, cx, gf_tables, k):
-    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
-    order = len(exptable)
-    
+def BM_delta(syndromes, cx, multiplication_table, k):
     d = 0
     for i in range(k):
         if k-i-1 < len(syndromes) and i < len(cx):
@@ -150,7 +147,7 @@ def BM_delta(syndromes, cx, gf_tables, k):
 # a codeword given syndromes.
 def Berlekamp_Massey(syndromes, n, k, gf_tables):
     double_t = n-k
-    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
+    exptable, logtable, multiplication_table = gf_tables
     N = len(syndromes)
     
     # c(x) and p(x) is initialized to [1]
@@ -162,7 +159,7 @@ def Berlekamp_Massey(syndromes, n, k, gf_tables):
     
     # k=0 is used for initial state so we start from k=1
     for k in range(1,N+1):
-        delta = BM_delta(syndromes, cx, gf_tables, k)
+        delta = BM_delta(syndromes, cx, multiplication_table, k)
         
         if delta == 0:
             l += 1
@@ -171,7 +168,8 @@ def Berlekamp_Massey(syndromes, n, k, gf_tables):
             if 2*L >= k:
                 
                 # cx = cx - d * dm^{-1} * px * x^{l}
-                dx_dm_inv = multiplication_table[delta][GF_inverse(dm,gf_tables)]
+                dx_dm_inv = (multiplication_table[delta]
+                                    [GF_inverse(dm,(exptable,logtable))])
                 subtractby = [multiplication_table[dx_dm_inv][px[i]] 
                               for i in range(len(px))] + [0]*l
                 cx = GF2_poly_add(cx, subtractby)
@@ -181,7 +179,8 @@ def Berlekamp_Massey(syndromes, n, k, gf_tables):
             else:
                 tx = cx
                 
-                dx_dm_inv = multiplication_table[delta][GF_inverse(dm,gf_tables)]
+                dx_dm_inv = (multiplication_table[delta]
+                                    [GF_inverse(dm,(exptable,logtable))])
                 subtractby = [multiplication_table[dx_dm_inv][px[i]] 
                               for i in range(len(px))] + [0]*l
                 cx = GF2_poly_add(cx, subtractby)
@@ -199,34 +198,35 @@ def Berlekamp_Massey(syndromes, n, k, gf_tables):
 # As r(x) = c(x)+e(x), we subtract r(x) by e(x) to get the correct c(x).
 def Forney(Lambda_poly, Syndromes, n, k, gf_tables):
     
-    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
+    exptable, logtable, multiplication_table = gf_tables
     order = len(exptable)
     
     # reverse the syndrome list since the syndrome written as polynomial
     # starts with S1 * x^0 + S2 * x^1 + ...
     Synd_poly = Syndromes[::-1]
     Syndrome_x_Lambda_poly = GF2_poly_product(Lambda_poly, Synd_poly,
-                                             gf_tables)
+                                             multiplication_table)
     
     # divide by x^{2t} and take the remainder
     x_exp_2t = [1] + [0]*(n-k)
     Omega_poly = GF2_remainder_monic_divisor(Syndrome_x_Lambda_poly, 
-                                             x_exp_2t, gf_tables)
+                                             x_exp_2t, multiplication_table)
     
     Lambda_poly_ddx = polynomial_derivative(Lambda_poly)
     
     # roots of L(x) are all exp where L(\alpha^{exp}) evaluates to 0
-    Lx_roots = GF2_poly_eval(Lambda_poly, n, k, gf_tables, range(0, order),
+    Lx_roots = GF2_poly_eval(Lambda_poly, n, k,
+                             (exptable,multiplication_table), range(0, order),
                              rootsonly=True)
     
     # error locations are given by the exponent of inverse of L(x) roots
     error_locations = [(order-i)%order for i in Lx_roots]
 
     roots_Omega_eval = GF2_poly_eval(Omega_poly, n, k,
-                               gf_tables, Lx_roots)
+                               (exptable,multiplication_table), Lx_roots)
     
     roots_Lambda_ddx_eval = GF2_poly_eval(Lambda_poly_ddx, n, k,
-                                    gf_tables, Lx_roots)
+                                    (exptable,multiplication_table), Lx_roots)
     
     
     # 0 is no error
@@ -259,7 +259,7 @@ def Forney(Lambda_poly, Syndromes, n, k, gf_tables):
 # Input and output are in binary strings (0s and 1s).
 
 def RS_encode(m, n, k, gf_tables, gx, systematic=True):
-    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
+    int2binstr_dict, multiplication_table = gf_tables
     
     
     # symbol size, bits per symbol
@@ -280,9 +280,9 @@ def RS_encode(m, n, k, gf_tables, gx, systematic=True):
     # We multiply message polynomial by x^(2t), then divide
     # by generator polynomial, take the remainder and concatenate.
     rx = GF2_remainder_monic_divisor(mx + [0]*error_cap, gx,
-                                     gf_tables, returnlen=n-k)
+                                     multiplication_table, returnlen=n-k)
     
-    rx_binstr = ''.join([int2binstr_dict[x] for x in rx])
+    rx_binstr = ''.join((int2binstr_dict[x] for x in rx))
     
     codeword = m + rx_binstr
     return codeword
@@ -308,13 +308,16 @@ def RS_decode(recv, n, k, gf_tables, systematic=True):
     # Generator poly assumed to be (x-alpha)*(x-alpha^2)*...*(x-alpha^(n-k)),
     # so we evaluate cx starting from alpha^1 for S_1 to alpha^(n-k)
     # for the last entry.
-    S = GF2_poly_eval(recvx, n, k, gf_tables, range(1, (n-k)+1))
+    S = GF2_poly_eval(recvx, n, k, 
+                      (exptable, multiplication_table), 
+                      range(1, (n-k)+1))
     
     if sum(S) != 0:
         # find error locator polynomial with Berlekamp-Massey
         # then use Forney to calculate the error polynomial
-        Lx = Berlekamp_Massey(S, n, k, gf_tables)
-        ex = Forney(Lx, S, n, k, gf_tables)
+        Lx = Berlekamp_Massey(S, n, k, 
+                              (exptable, logtable, multiplication_table))
+        ex = Forney(Lx, S, n, k, (exptable, logtable, multiplication_table))
 
         # c(x) + e(x) = r(x)
         # c(x) = r(x) - e(x) ---> r(x) ^ e(x)
@@ -324,7 +327,7 @@ def RS_decode(recv, n, k, gf_tables, systematic=True):
         # we only need k symbols out of n, so we cut the tail after k
         # if using systematic encoding
         
-        decoded = ''.join([int2binstr_dict[x] for x in cx[:k]])
+        decoded = ''.join((int2binstr_dict[x] for x in cx[:k]))
         
         return decoded
     else:

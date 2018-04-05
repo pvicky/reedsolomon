@@ -73,10 +73,16 @@ def binstr2int_eqlen(binstr, z):
     mx = [binstr2int(binstr[x:x+z]) for x in range(0,len(binstr),z)]
     return mx
 
+
+def hamming_distance(str1, str2):
+    if len(str1) != len(str2):
+        return None
+    return len([1 for x in range(len(str1)) if str1[x]!=str2[x]])
+
 ###############################################################################
 
-def polynomial_derivative(poly, gen_tables):
-    exptable, logtable, int2binstr_dict = gen_tables
+def polynomial_derivative(poly):
+    
     degree = len(poly)-1
     derivative = []
     

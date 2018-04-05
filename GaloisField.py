@@ -25,7 +25,7 @@ def GF_product(a, b, gf_tables):
     if a==0 or b==0:
         return 0
     
-    exptable, logtable, int2binstr_dict = gf_tables
+    exptable, logtable = gf_tables
     order = len(exptable)
     
     if a in logtable and b in logtable:
@@ -38,7 +38,7 @@ def GF_product(a, b, gf_tables):
 # exponential table -> x * x^{-1} = 1
 # Returns the integer form of a binary polynomial
 def GF_inverse(x, gf_tables):
-    exptable, logtable, int2binstr_dict = gf_tables
+    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
     order = len(exptable)
     
     # inverse of 0 (x^{-\infty}) is not defined
@@ -52,7 +52,7 @@ def GF_inverse(x, gf_tables):
 # polynomials in Galois Field.
 # Returns an list which represents the resulting polynomial.
 def GF2_poly_product(poly_a, poly_b, gf_tables):
-    exptable, logtable, int2binstr_dict = gf_tables
+    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
     order = len(exptable)
     
     # similar to convolution but look up table whenever multiplication occurs
@@ -63,7 +63,9 @@ def GF2_poly_product(poly_a, poly_b, gf_tables):
         total = 0
         for j in range(0, i+1):
             if j < len(poly_a) and i-j < len(poly_b):
-                total ^= GF_product(poly_a[j], poly_b[i-j], gf_tables)
+                total ^= multiplication_table[poly_a[j]][poly_b[i-j]]
+#                total ^= GF_product(poly_a[j], poly_b[i-j],
+#                                    (exptable,logtable))
                 
         result[i] = total
     return result
@@ -78,7 +80,7 @@ def GF2_poly_product(poly_a, poly_b, gf_tables):
 def GF2_div_remainder(dividend, divisor, gf_tables, returnlen=0):
     if len(dividend) < len(divisor):
         return dividend
-    exptable, logtable, int2binstr_dict = gf_tables
+    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
     order = len(exptable)
     lendiv = len(divisor)
     
@@ -125,10 +127,10 @@ def GF2_div_remainder(dividend, divisor, gf_tables, returnlen=0):
         # find how much the divisor should be multiplied by, in terms of
         # power of alpha
         quot = (logtable[remainder[0]] - divisor_lead_x_exponent) % order
-        
+    
         # multiply divisor by quotient
         subtractby = [exptable[(logtable[x]+quot) % order] if x!=0 else 0 
-                      for x in divisor]
+                        for x in divisor]
         
         # XOR with the remainder
         # the result will reduce the degree of remainder by at least one
@@ -150,7 +152,47 @@ def GF2_div_remainder(dividend, divisor, gf_tables, returnlen=0):
             return remainder[len(remainder) - returnlen:]
     else:
         return remainder
+
+
+# Functionally a faster version of GF2_div_remainder, but limited to only
+# monic polynomial as divisor.
+def GF2_remainder_monic_divisor(dividend, divisor, gf_tables, returnlen=0):
+    if len(dividend) < len(divisor):
+        return dividend
+    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
+    order = len(exptable)
+    lendiv = len(divisor)
     
+    remainder = dividend
+    
+    # trim leading zeros before first iteration
+    while len(remainder)>0 and remainder[0] == 0:
+        remainder = remainder[1:]
+    
+    while len(remainder) >= lendiv:
+        lead_remainder = remainder[0]
+        if lead_remainder == 0:
+            remainder = remainder[1:]
+            continue
+
+        # XOR with the remainder
+        # the result will reduce the degree of remainder by at least one
+        for i in range(lendiv):
+            remainder[i] = (remainder[i] ^
+                            multiplication_table[divisor[i]][lead_remainder])
+    
+    # result from the loop above should have length of at most len(generator)-1
+    # so we can add 0s in front until the desired length
+    # in cases where remainder's length is more than the generator's
+    # (usually when codeword is all 0), we take the tail with length as needed
+    if returnlen:
+        if returnlen > len(remainder):
+            return [0]*(returnlen-len(remainder)) + remainder
+        else:
+            return remainder[len(remainder) - returnlen:]
+    else:
+        return remainder
+
 
 # Evaluate the input polynomial px for each element in alphaexps.
 # px is a polynomial where each element is the integer representation of some
@@ -159,7 +201,7 @@ def GF2_div_remainder(dividend, divisor, gf_tables, returnlen=0):
 # On the other hand, each element of alphaexps is a power of alpha for which 
 # we wish to evaluate, i.e. substitute x with \alpha^{exp}.
 def GF2_poly_eval(px, n, k, gf_tables, alphaexps, rootsonly=False):
-    exptable, logtable, int2binstr_dict = gf_tables
+    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
     
     degree = len(px)-1
     order = len(exptable)
@@ -188,12 +230,10 @@ def GF2_poly_eval(px, n, k, gf_tables, alphaexps, rootsonly=False):
         # expnt is what x is substituted with
         expnt = alphaexps[i]
         for j in range(len(px)):
-            # px[j] is the coefficient of x (in binary)
-            # if None means multiply by 0, so continue to next iteration
-            if px[j]!=0 and px[j] in logtable:
-                # r_i + \alpha^{logtable[px[j]]} * x^{degree-j}
-                r_i ^= exptable[(logtable[px[j]] + expnt*(degree-j))%order]
-    
+            
+            # r_i + \alpha^{logtable[px[j]]} * x^{degree-j}
+            r_i ^= (multiplication_table[px[j]]
+                        [exptable[expnt*(degree-j)%order]])
         results[i] = r_i
     
     if rootsonly:

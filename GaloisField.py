@@ -112,17 +112,21 @@ def GF2_div_remainder(dividend, divisor, gf_tables, returnlen=0):
     remainder = dividend
     divisor_lead_x_exponent = logtable[divisor[0]]
     
+    i = 0
     # trim leading zeros before first iteration
-    while len(remainder)>0 and remainder[0] == 0:
-        remainder = remainder[1:]
+    while len(remainder)>i and remainder[i] == 0:
+        i += 1
     
-    while len(remainder) >= lendiv:
-        if sum(remainder)==0:
+    while len(remainder) >= i+lendiv:
+        # since we trim leading zeros first this will hold true if remainder
+        # is all zeros, so we can avoid doing a sum to prevent subtraction
+        # with None
+        if remainder[i] == 0:
             break
         
         # find how much the divisor should be multiplied by, in terms of
         # power of alpha
-        quot = (logtable[remainder[0]] - divisor_lead_x_exponent) % order
+        quot = (logtable[remainder[i]] - divisor_lead_x_exponent) % order
     
         # multiply divisor by quotient
         subtractby = [exptable[(logtable[x]+quot) % order] if x!=0 else 0 
@@ -130,12 +134,12 @@ def GF2_div_remainder(dividend, divisor, gf_tables, returnlen=0):
         
         # XOR with the remainder
         # the result will reduce the degree of remainder by at least one
-        for i in range(lendiv):
-            remainder[i] = remainder[i] ^ subtractby[i]
+        for j in range(lendiv):
+            remainder[i+j] = remainder[i+j] ^ subtractby[j]
         
         # remove leading zero of the remainder
-        while len(remainder)>0 and remainder[0] == 0:
-            remainder = remainder[1:]
+        while len(remainder)>i and remainder[i] == 0:
+            i += 1
     
     # result from the loop above should have length of at most len(generator)-1
     # so we can add 0s in front until the desired length
@@ -164,21 +168,22 @@ def GF2_remainder_monic_divisor(dividend, divisor,
     
     remainder = dividend
     
+    i = 0
     # trim leading zeros before first iteration
-    while len(remainder)>0 and remainder[0] == 0:
-        remainder = remainder[1:]
+    while len(remainder)>i and remainder[i] == 0:
+        i += 1
     
-    while len(remainder) >= lendiv:
-        lead_remainder = remainder[0]
-        if lead_remainder == 0:
-            remainder = remainder[1:]
-            continue
+    while len(remainder) >= i+lendiv:
+        lead_remainder = remainder[i]
 
         # XOR with the remainder
         # the result will reduce the degree of remainder by at least one
-        for i in range(lendiv):
-            remainder[i] = (remainder[i] ^
-                            multiplication_table[divisor[i]][lead_remainder])
+        for j in range(lendiv):
+            remainder[i+j] = (remainder[i+j] ^
+                            multiplication_table[divisor[j]][lead_remainder])
+        
+        while len(remainder)>i and remainder[i] == 0:
+            i += 1
     
     # result from the loop above should have length of at most len(generator)-1
     # so we can add 0s in front until the desired length

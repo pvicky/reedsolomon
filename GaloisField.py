@@ -80,34 +80,6 @@ def GF2_div_remainder(dividend, divisor, gf_tables, returnlen=0):
     order = len(exptable)
     lendiv = len(divisor)
     
-    """
-    # NOTE: this method and the one below it have roughly the same running time
-    # but the other one does not depend on numpy functions, so usually faster
-    # for short codes.
-    
-    remainder = abs(np.array(dividend))
-    divisor = abs(np.array(divisor))
-    divisor_lead_x_exponent = logtable[divisor[0]]
-    
-    remainder = np.trim_zeros(remainder, 'f')
-    while len(remainder) >= lendiv:
-        if np.sum(remainder)==0:
-            break
-        quot = (logtable[remainder[0]] - divisor_lead_x_exponent) % order
-        subtractby = (exptable[(logtable[x]+quot) % order] if x!=0 else 0 
-                      for x in divisor)
-        subtractby_ndar = np.fromiter(subtractby, dtype='int64')
-        remainder[:lendiv] = (remainder[:lendiv] ^ subtractby_ndar)
-        remainder = np.trim_zeros(remainder, 'f')
-    
-    if returnlen:
-        if returnlen > len(remainder):
-            return np.pad(remainder, (returnlen-len(remainder),0), 'constant')
-        else:
-            return remainder[len(remainder)-returnlen:]
-    else:
-        return remainder
-    """
     
     remainder = dividend
     divisor_lead_x_exponent = logtable[divisor[0]]
@@ -210,22 +182,6 @@ def GF2_poly_eval(px, n, k, gf_tables, alphaexps, rootsonly=False):
     degree = len(px)-1
     order = len(exptable)
     
-    """
-    # NOTE: the method below this one is faster as it has fewer function calls
-    # + the overhead of creating np.array makes it slower for short polynomials
-    
-    results = np.zeros(len(alphaexps), dtype='int64')
-    alphaexps_np = np.array(alphaexps)
-    for i in range(len(px)):
-        if px[i]==0:
-            continue
-        exp_i = np.repeat(logtable[px[i]] , alphaexps_np.shape)
-        expadd = alphaexps_np*(degree-i)
-        product_exp = (exp_i + expadd) % order
-        addby_ndar = np.fromiter((exptable[j]  
-                             for j in product_exp), dtype='int64')
-        results ^= addby_ndar
-    """
     
     results = [0]*len(alphaexps)
     roots = []
@@ -265,28 +221,12 @@ def GF2_poly_add(poly_a, poly_b):
 ###############################################################################
 
 
-def polynomials_add(poly_list):
-    maxlen = max([len(i) for i in poly_list])
-    
-    result = [0]*maxlen
-    for poly in poly_list:
-        tpoly = [0]*(maxlen-len(poly)) + poly
-        result = [result[i] + tpoly[i]
-                  for i in range(maxlen)]
-    
-    return result
-
-
-def polynomial_scalar_product(sc, poly):
-    return [sc*x if x is not None else None for x in poly]
-
-
 def polynomial_product(poly1, poly2):
     result_list = []
-    
     maxlen = 0
+    
     for i in range(len(poly2)):
-        t = polynomial_scalar_product(poly2[i], poly1) + [0]*(len(poly2)-i-1)
+        t = [poly2[i]*x for x in poly1] + [0]*(len(poly2)-i-1)
         result_list.append(t)
         if len(t) > maxlen:
             maxlen = len(t)
@@ -311,16 +251,25 @@ def GF_polynomial_product(a, b, modulo=0):
     
     # k=0 is the highest degree
     for k in range(support+1):
+        
+        maxlen = 0
         tlist = []
         for i in range(k+1):
             if i < len(a) and k-i < len(b):
-                tlist.append(polynomial_product(a[i], b[k-i]))
-        
-        t = polynomials_add(tlist)
+                alphas_list = polynomial_product(a[i], b[k-i])
+                tlist.append(alphas_list)
+                if len(alphas_list) > maxlen:
+                    maxlen = len(alphas_list)
+                
+        result_k = [0]*maxlen
+        for t in tlist:
+            t = [0]*(maxlen-len(t)) + t
+            result_k = [result_k[j] + t[j] for j in range(maxlen)]
+            
         if modulo !=0:
-            t = [i%2 for i in t]
+            result_k = [i%modulo for i in result_k]
         
-        result.append(t)
+        result.append(result_k)
     return result
 
 

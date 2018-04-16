@@ -19,11 +19,16 @@ To represent a 0, we use \alpha^{-\infty}
 # Returns an integer which represents \alpha^{log a + log b}.
 # If either a or b is 0, it means multiply by 0, or to be precise 
 # multiplying with alpha with an exponent of negative infinity.
-def GF_product(a, b, gf_tables):
+cpdef int GF_product(int a, int b, 
+                     tuple gf_tables):
     
     # multiplied by x^{-\infty}
     if a==0 or b==0:
         return 0
+    
+    cdef:
+        dict exptable, logtable
+        int order
     
     exptable, logtable = gf_tables
     order = len(exptable)
@@ -31,19 +36,24 @@ def GF_product(a, b, gf_tables):
     if a in logtable and b in logtable:
         return exptable[(logtable[a] + logtable[b]) % order]
     else:
-        return None
+        return 0
 
 
 # Given a binary polynomial (in integer), find its inverse in the
 # exponential table -> x * x^{-1} = 1
 # Returns the integer form of a binary polynomial
-def GF_inverse(x, gf_tables):
+cpdef int GF_inverse(int x, 
+                     tuple gf_tables):
+    cdef:
+        dict exptable, logtable
+        int order
+        
     exptable, logtable = gf_tables
     order = len(exptable)
     
     # inverse of 0 (x^{-\infty}) is not defined
     if x not in logtable or logtable[x] is None:
-        return None
+        return 0
     
     return exptable[(order - logtable[x]) % order]
 
@@ -51,16 +61,23 @@ def GF_inverse(x, gf_tables):
 # Multiply poly_a and poly_b, where both are the integer form of two
 # polynomials in Galois Field.
 # Returns an list which represents the resulting polynomial.
-def GF2_poly_product(poly_a, poly_b, multiplication_table):
+cpdef list GF2_poly_product(list poly_a, list poly_b, 
+                            list multiplication_table):
     
     # similar to convolution but look up table whenever multiplication occurs
-    support_end = len(poly_a) + len(poly_b) - 2
+    cdef:
+        int i, j, total, support_end, lena, lenb
+        list result
+    
+    lena = len(poly_a)
+    lenb = len(poly_b)
+    support_end = lena+ lenb - 2
     result = [0] * (support_end+1)
     
     for i in range(0, support_end+1):
         total = 0
         for j in range(0, i+1):
-            if j < len(poly_a) and i-j < len(poly_b):
+            if j < lena and i-j < lenb:
                 total ^= multiplication_table[poly_a[j]][poly_b[i-j]]
                 
         result[i] = total
@@ -73,15 +90,23 @@ def GF2_poly_product(poly_a, poly_b, multiplication_table):
 # For example, 11 represent 1011 meaning x^3 + x + 1
 # If you want the polynomials represented as some power as alpha for each
 # power of x, then take the logtable of each element.
-def GF2_div_remainder(dividend, divisor, gf_tables, returnlen=0):
+cpdef list GF2_div_remainder(list dividend, list divisor, tuple gf_tables,
+                             int returnlen=0):
+    
+    cdef:
+        list exptable, logtable, remainder, subtractby
+        int order, lendiv, i, j, divisor_lead_x_exponent, quot
+    
     if len(dividend) < len(divisor):
         return dividend
+    
     exptable, logtable = gf_tables
     order = len(exptable)
     lendiv = len(divisor)
     
     remainder = dividend[:]
     divisor_lead_x_exponent = logtable[divisor[0]]
+    
     
     i = 0
     # trim leading zeros before first iteration
@@ -127,23 +152,30 @@ def GF2_div_remainder(dividend, divisor, gf_tables, returnlen=0):
 
 # Functionally a faster version of GF2_div_remainder, but limited to only
 # monic polynomial as divisor.
-def GF2_remainder_monic_divisor(dividend, divisor, 
-                                multiplication_table, returnlen=0):
-    if len(dividend) < len(divisor):
-        if returnlen > len(dividend):
-            return [0]*(returnlen-len(dividend)) + dividend
-        else:
-            return dividend[len(dividend) - returnlen:]
+cpdef list GF2_remainder_monic_divisor(list dividend, list divisor, 
+                                       list multiplication_table, 
+                                       int returnlen=0):
     
-    lendiv = len(divisor)
+    cdef:
+        list remainder
+        int lendiv, lenrem, lead_remainder, i, j
+    
     remainder = dividend[:]
+    lendiv = len(divisor)
+    lenrem = len(remainder)
+    
+    if lenrem < lendiv:
+        if returnlen > lenrem:
+            return [0]*(returnlen-lenrem) + dividend
+        else:
+            return dividend[lenrem - returnlen:]
     
     i = 0
     # trim leading zeros before first iteration
-    while len(remainder)>i and remainder[i] == 0:
+    while lenrem > i and remainder[i] == 0:
         i += 1
     
-    while len(remainder) >= i+lendiv:
+    while lenrem >= i+lendiv:
         lead_remainder = remainder[i]
 
         # XOR with the remainder
@@ -152,7 +184,7 @@ def GF2_remainder_monic_divisor(dividend, divisor,
             remainder[i+j] = (remainder[i+j] ^
                             multiplication_table[divisor[j]][lead_remainder])
         
-        while len(remainder)>i and remainder[i] == 0:
+        while lenrem > i and remainder[i] == 0:
             i += 1
     
     # result from the loop above should have length of at most len(generator)-1
@@ -160,10 +192,10 @@ def GF2_remainder_monic_divisor(dividend, divisor,
     # in cases where remainder's length is more than the generator's
     # (usually when codeword is all 0), we take the tail with length as needed
     if returnlen:
-        if returnlen > len(remainder):
-            return [0]*(returnlen-len(remainder)) + remainder
+        if returnlen > lenrem:
+            return [0]*(returnlen-lenrem) + remainder
         else:
-            return remainder[len(remainder) - returnlen:]
+            return remainder[lenrem - returnlen:]
     else:
         return remainder
 
@@ -174,20 +206,25 @@ def GF2_remainder_monic_divisor(dividend, divisor,
 # know what power of alpha it is).
 # On the other hand, each element of alphaexps is a power of alpha for which 
 # we wish to evaluate, i.e. substitute x with \alpha^{exp}.
-def GF2_poly_eval(px, n, k, gf_tables, alphaexps, rootsonly=False):
+cpdef list GF2_poly_eval(list px, int n, int k, 
+                         tuple gf_tables,
+                         list alphaexps, 
+                         rootsonly=False):
+    cdef:
+        dict exptable
+        list multiplication_table, results = [0]*len(alphaexps), roots = []
+        int degree=len(px)-1, order, reps=len(alphaexps), i, r_i, j, expnt
+    
     exptable, multiplication_table = gf_tables
+    order=len(exptable)
     
-    degree = len(px)-1
-    order = len(exptable)
     
-    results = [0]*len(alphaexps)
-    roots = []
-    for i in range(len(alphaexps)):
+    for i in range(reps):
         r_i = 0
         
         # expnt is what x is substituted with
         expnt = alphaexps[i]
-        for j in range(len(px)):
+        for j in range(degree+1):
             
             # r_i + \alpha^{log(px[j])} * x^{degree-j}
             r_i ^= (multiplication_table[px[j]]
@@ -202,9 +239,10 @@ def GF2_poly_eval(px, n, k, gf_tables, alphaexps, rootsonly=False):
         return results
 
 
-def GF2_poly_add(poly_a, poly_b):
-    lena, lenb = len(poly_a), len(poly_b)
-    maxlen = max(lena, lenb)
+cpdef list GF2_poly_add(list poly_a, list poly_b):
+    cdef:
+        int lena = len(poly_a), lenb = len(poly_b)
+        int i, maxlen = max(lena, lenb)
     
     if lena > lenb:
         poly_b = [0]*(maxlen-lenb) + poly_b
@@ -215,10 +253,12 @@ def GF2_poly_add(poly_a, poly_b):
 
 ###############################################################################
 
-
-def polynomial_product(poly1, poly2):
+cdef list polynomial_product(list poly1, list poly2):
+    cdef:
+        int maxlen = 0, i
+        list result_list, result, poly, tpoly, t
+        
     result_list = []
-    maxlen = 0
     
     for i in range(len(poly2)):
         t = [poly2[i]*x for x in poly1] + [0]*(len(poly2)-i-1)
@@ -236,7 +276,11 @@ def polynomial_product(poly1, poly2):
 
 
 # calculate product of two polynomials by convolution
-def GF_polynomial_product(a, b, modulo=0):
+cpdef list GF_polynomial_product(list a, list b, int modulo=0):
+    cdef:
+        int degree_a, degree_b, support, k, i, maxlen
+        list result, result_k, t, tlist, alphas_list
+    
     degree_a = len(a)-1
     degree_b = len(b)-1
     
@@ -273,29 +317,36 @@ def GF_polynomial_product(a, b, modulo=0):
 # Find the remainder of polynomial division, not restricted to GF(2^n) and
 # does not require GF tables.
 # Note that the coefficients are not in powers of alpha, just regular integers.
-def GF_polynomial_div_remainder(dividend, divisor, returnlen=0, modulo=0):
+cpdef list GF_polynomial_div_remainder(list dividend, list divisor,
+                                      int returnlen=0, int modulo=0):
     
     if len(dividend) < len(divisor):
         return dividend
     
+    cdef:
+        int quot, i, j, lendiv, lenrem
+        list remainder
+    
     remainder = dividend[:]
     lendiv = len(divisor)
+    lenrem = len(remainder)
     
-    while len(remainder)>0 and remainder[0] == 0:
-        remainder = remainder[1:]
+    i = 0
+    while lenrem > i and remainder[i] == 0:
+        i += 1
     
-    while len(remainder) >= lendiv:
-        q = int(remainder[0] / divisor[0])
+    while lenrem >= i+lendiv:
+        quot = remainder[i] / divisor[0]
         
-        remainder = ([remainder[i]-q*divisor[i] for i in range(lendiv)] 
-                     + remainder[lendiv:])
-        
-        if modulo !=0:
-            remainder = [i%modulo for i in remainder]
+        for j in range(lendiv):
+            if modulo != 0:
+                remainder[i+j] = (remainder[i+j] - quot*divisor[j]) % modulo
+            else:
+                remainder[i+j] = remainder[i+j] - quot*divisor[j]
         
         # remove leading zero of the remainder
-        while len(remainder)>0 and remainder[0] == 0:
-            remainder = remainder[1:]
+        while lenrem > i and remainder[i] == 0:
+            i += 1
         
     # cut or pad the array to the desired length
     if returnlen:

@@ -4,9 +4,14 @@ import math
 # Converts an integer into a binary number as a list of integers {0,1}.
 # Negative integers are not handled, we simply return None.
 # alternative method: [int(x) for x in bin(integer)[2:]]
-def int2bin(integer, returnlen=0, as_str=False):
+cpdef list int2bin(int integer, 
+                  int returnlen=0):
+    
+    cdef:
+        list r, t
+        
     if integer < 0:
-        r = None
+        r = []
     elif integer == 0:
         r = [integer]
     else:
@@ -22,15 +27,17 @@ def int2bin(integer, returnlen=0, as_str=False):
         else:
             r = r[:returnlen]
     
-    if as_str:
-        return ''.join([str(i) for i in r])
-    else:
-        return r
+    return r
     
     
-def int2binstr(integer, returnlen=0):
+cpdef str int2binstr(int integer, 
+                    int returnlen=0):
+    
+    cdef:
+        str r, t
+    
     if integer < 0:
-        r = None
+        r = ''
     elif integer == 0:
         r = '0'
     else:
@@ -52,37 +59,39 @@ def int2binstr(integer, returnlen=0):
     
 
 # converts input (binary number in array of 0s and 1s) into integer
-def bin2int(x):
+cpdef int bin2int(list x):
     #return np.sum((2**np.arange(len(x)-1,-1,-1))*x)
-    t = 0
-    lenx = len(x)
+    cdef:
+        int i, t = 0, lenx = len(x)
+    
     for i in range(lenx):
         if x[i]==1:
             t += 1<<(lenx-i-1)
     return t
     
 
-# binary string to integer
-binstr2int = lambda x: int(x, base=2)
-
-
 # Converts the input string in {0,1} into substrings of equal length z, then
 # transform each substring into its integer representation.
-def binstr2int_eqlen(binstr, z):
-    
-    mx = [int(binstr[x:x+z],base=2) for x in range(0,len(binstr),z)]
+cpdef list binstr2int_eqlen(str binstr, int z):
+    cdef:
+        list mx
+        int x, lenstr = len(binstr)
+    mx = [int(binstr[x:x+z],base=2) for x in range(0,lenstr,z)]
     return mx
 
 
-def hamming_distance(str1, str2):
+cpdef int hamming_distance(str str1, str str2):
+    cdef:
+        str x,y
     return len([1 for x,y in zip(str1,str2) if x!=y])
 
 ###############################################################################
 
-def polynomial_derivative(poly):
+cpdef list polynomial_derivative(list poly):
     
-    degree = len(poly)-1
-    derivative = []
+    cdef:
+        int i, r, j, degree = len(poly)-1
+        list derivative = []
     
     for i in range(degree):
         r = bin2int( [((degree-i)*j)%2 for j in int2bin(poly[i])] )
@@ -90,14 +99,21 @@ def polynomial_derivative(poly):
     return derivative
 
 
-def convolve(lst_a, lst_b):
+cpdef list convolve(list lst_a, list lst_b):
+    
+    cdef:
+        list result
+        int i, j, lena, lenb, support_end, total
+    
+    lena, lenb = len(lst_a), len(lst_b)
+    
     support_end = len(lst_a) + len(lst_b) - 2
     result = [0] * (support_end+1)
     
     for i in range(0, support_end+1):
         total = 0
         for j in range(0, i+1):
-            if j < len(lst_a) and i-j < len(lst_b):
+            if j < lena and i-j < lenb:
                 total += lst_a[j] * lst_b[i-j]
         result[i] = total
     return result 

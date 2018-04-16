@@ -80,8 +80,7 @@ def GF2_div_remainder(dividend, divisor, gf_tables, returnlen=0):
     order = len(exptable)
     lendiv = len(divisor)
     
-    
-    remainder = dividend
+    remainder = dividend[:]
     divisor_lead_x_exponent = logtable[divisor[0]]
     
     i = 0
@@ -137,8 +136,7 @@ def GF2_remainder_monic_divisor(dividend, divisor,
             return dividend[len(dividend) - returnlen:]
     
     lendiv = len(divisor)
-    
-    remainder = dividend
+    remainder = dividend[:]
     
     i = 0
     # trim leading zeros before first iteration
@@ -182,7 +180,6 @@ def GF2_poly_eval(px, n, k, gf_tables, alphaexps, rootsonly=False):
     degree = len(px)-1
     order = len(exptable)
     
-    
     results = [0]*len(alphaexps)
     roots = []
     for i in range(len(alphaexps)):
@@ -205,7 +202,6 @@ def GF2_poly_eval(px, n, k, gf_tables, alphaexps, rootsonly=False):
         return results
 
 
-
 def GF2_poly_add(poly_a, poly_b):
     lena, lenb = len(poly_a), len(poly_b)
     maxlen = max(lena, lenb)
@@ -216,7 +212,6 @@ def GF2_poly_add(poly_a, poly_b):
         poly_a = [0]*(maxlen-lena) + poly_a
     return [poly_a[i] ^ poly_b[i] for i in range(maxlen)]
     
-
 
 ###############################################################################
 
@@ -283,7 +278,7 @@ def GF_polynomial_div_remainder(dividend, divisor, returnlen=0, modulo=0):
     if len(dividend) < len(divisor):
         return dividend
     
-    remainder = dividend
+    remainder = dividend[:]
     lendiv = len(divisor)
     
     while len(remainder)>0 and remainder[0] == 0:

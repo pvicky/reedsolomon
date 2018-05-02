@@ -152,11 +152,13 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
 
 # calculating distance of Berlekamp-Massey algorithm at kth iteration
 cdef int BM_delta(list syndromes, list cx, list multiplication_table, int k):
-    cdef int i, d = 0, lensyn = len(syndromes), lencx = len(cx)
+    cdef int i, d = 0, lencx = len(cx)
     
-    for i in range(k):
-        if k-i-1 < lensyn and i < lencx:
-            d ^= multiplication_table[syndromes[k-i-1]][cx[-i-1]]
+    # No bound checking as we rely on the fact that syndrome array is always
+    # bigger than cx array. Length of syndrome array is 2t, while cx at most
+    # has a degree of t.
+    for i in range(lencx):
+            d ^= multiplication_table[syndromes[k-lencx+i]][cx[i]]
     return d
 
 # Berlekamp-Massey algorithm, finding the error locator polynomial of 

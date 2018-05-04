@@ -8,6 +8,7 @@ tables required for the encoding and decoding.
 
 """
 
+#cython: language_level=3, boundscheck=False, wraparound=False
 from GaloisField import * 
 import itertools, math
 

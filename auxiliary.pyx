@@ -1,29 +1,45 @@
 import math
+from cpython.array cimport array, clone, resize_smart
 
+cdef array array_int_template = array('i')
 
 # Converts an integer into a binary number as a list of integers {0,1}.
 # Negative integers are not handled, we simply return None.
 # alternative method: [int(x) for x in bin(integer)[2:]]
-cpdef list int2bin(int integer, 
+cpdef array[int] int2bin(int integer, 
                   int returnlen=0):
     
     cdef:
-        list r, t
+        int i, t = 0, lendiff
+        array[int] r, temp
         
     if integer < 0:
-        r = []
+        r = clone(array_int_template, 0, False)
+    
     elif integer == 0:
-        r = [integer]
+        r = clone(array_int_template, 1, True)
+    
     else:
-        t = []
+        temp = clone(array_int_template, 0 ,False)
         while integer>0:
-            t+=[integer%2]
-            integer //= 2
-        r = t[::-1]
+            resize_smart(temp, t+1)
+            temp.data.as_ints[t] = integer&1
+            t += 1
+            integer = integer>>1
+        
+        r = clone(array_int_template, t, True)
+        for i in range(t):
+            r.data.as_ints[i] = temp.data.as_ints[t-i-1]
         
     if returnlen:
         if returnlen > len(r):
-            r = [0]*(returnlen-len(r)) + r
+            
+            # r = [0]*(returnlen-len(r)) + r
+            lendiff = returnlen-t
+            temp = clone(array_int_template, returnlen, True)
+            for i in range(t):
+                temp.data.as_ints[lendiff+i] = r.data.as_ints[i]
+            r = temp
         else:
             r = r[:returnlen]
     
@@ -43,11 +59,11 @@ cpdef str int2binstr(int integer,
     else:
         t = ''
         while integer>0:
-            if integer%2==0:
-                t+='0'
-            else:
+            if integer&1:
                 t+='1'
-            integer //= 2
+            else:
+                t+='0'
+            integer = integer>>1
         r = t[::-1]
         
     if returnlen:
@@ -59,7 +75,7 @@ cpdef str int2binstr(int integer,
     
 
 # converts input (binary number in array of 0s and 1s) into integer
-cpdef int bin2int(list x):
+cpdef int bin2int(int[:] x):
     #return np.sum((2**np.arange(len(x)-1,-1,-1))*x)
     cdef:
         int i, t = 0, lenx = len(x)
@@ -72,11 +88,16 @@ cpdef int bin2int(list x):
 
 # Converts the input string in {0,1} into substrings of equal length z, then
 # transform each substring into its integer representation.
-cpdef list binstr2int_eqlen(str binstr, int z):
+cpdef array[int] binstr2int_eqlen(str binstr, int z):
     cdef:
-        list mx
-        int x, lenstr = len(binstr)
-    mx = [int(binstr[x:x+z],base=2) for x in range(0,lenstr,z)]
+        array[int] mx
+        int x, lenstr = len(binstr), lenresult, ctr=0
+    lenresult = lenstr//z
+    mx = clone(array_int_template, lenresult, False)
+    for x in range(lenresult):
+        mx.data.as_ints[x] = int(binstr[ctr:ctr+z], base=2)
+        ctr += z
+    #mx = [int(binstr[x:x+z],base=2) for x in range(0,lenstr,z)]
     return mx
 
 
@@ -87,15 +108,19 @@ cpdef int hamming_distance(str str1, str str2):
 
 ###############################################################################
 
-cpdef list polynomial_derivative(list poly):
+cpdef array[int] GF2_polynomial_derivative(int[:] poly):
     
     cdef:
         int i, r, j, degree = len(poly)-1
-        list derivative = []
+        array[int] derivative = clone(array_int_template, degree, True), temp
     
     for i in range(degree):
-        r = bin2int( [((degree-i)*j)%2 for j in int2bin(poly[i])] )
-        derivative.append(r)
+        #temp = [((degree-i)*j)%2 for j in int2bin(poly[i])]
+        temp = int2bin(poly[i])
+        for j in range(len(temp)):
+            temp.data.as_ints[j] = ((degree-i) * temp.data.as_ints[j]) % 2
+        r = bin2int(temp)
+        derivative.data.as_ints[i] = r
     return derivative
 
 

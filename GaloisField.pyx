@@ -1,6 +1,11 @@
 #cython: language_level=3, boundscheck=False, wraparound=False
 import math
 from auxiliary import *
+from cpython.array cimport array, clone
+import numpy as np
+cimport numpy as np
+
+cdef array array_int_template = array('i')
 
 """
 
@@ -21,40 +26,36 @@ To represent a 0, we use \alpha^{-\infty}
 # If either a or b is 0, it means multiply by 0, or to be precise 
 # multiplying with alpha with an exponent of negative infinity.
 cpdef int GF_product(int a, int b, 
-                     tuple gf_tables):
+                     int[:] exptable, int[:] logtable):
     
     # multiplied by x^{-\infty}
     if a==0 or b==0:
         return 0
     
     cdef:
-        dict exptable, logtable
         int order
     
-    exptable, logtable = gf_tables
     order = len(exptable)
     
-    if a in logtable and b in logtable:
+    if a < order+1 and b < order+1:
         return exptable[(logtable[a] + logtable[b]) % order]
     else:
-        return 0
+        return -1
 
 
 # Given a binary polynomial (in integer), find its inverse in the
 # exponential table -> x * x^{-1} = 1
 # Returns the integer form of a binary polynomial
 cpdef int GF_inverse(int x, 
-                     tuple gf_tables):
+                     int[:] exptable, int[:] logtable):
     cdef:
-        dict exptable, logtable
         int order
-        
-    exptable, logtable = gf_tables
+    
     order = len(exptable)
     
     # inverse of 0 (x^{-\infty}) is not defined
-    if x not in logtable or logtable[x] is None:
-        return 0
+    if x == 0:
+        return -1
     
     return exptable[(order - logtable[x]) % order]
 
@@ -62,18 +63,20 @@ cpdef int GF_inverse(int x,
 # Multiply poly_a and poly_b, where both are the integer form of two
 # polynomials in Galois Field.
 # Returns an list which represents the resulting polynomial.
-cpdef list GF2_poly_product(list poly_a, list poly_b, 
-                            list multiplication_table):
+cpdef array[int] GF2_poly_product(int[:] poly_a, int[:] poly_b, 
+                                  int[:,:] multiplication_table):
     
     # similar to convolution but look up table whenever multiplication occurs
     cdef:
         int i, j, total, support_end, lena, lenb
-        list result
+        array[int] result
     
     lena = len(poly_a)
     lenb = len(poly_b)
     support_end = lena+ lenb - 2
-    result = [0] * (support_end+1)
+    
+    # result is initialized to [0] * (support_end+1)
+    result = clone(array_int_template, support_end+1, True)
     
     for i in range(0, support_end+1):
         total = 0
@@ -81,7 +84,7 @@ cpdef list GF2_poly_product(list poly_a, list poly_b,
             if j < lena and i-j < lenb:
                 total ^= multiplication_table[poly_a[j]][poly_b[i-j]]
                 
-        result[i] = total
+        result.data.as_ints[i] = total
     return result
 
 
@@ -153,39 +156,49 @@ cpdef list GF2_div_remainder(list dividend, list divisor, tuple gf_tables,
 
 # Functionally a faster version of GF2_div_remainder, but limited to only
 # monic polynomial as divisor.
-cpdef list GF2_remainder_monic_divisor(list dividend, list divisor, 
-                                       list multiplication_table, 
-                                       int returnlen=0):
+cpdef array[int] GF2_remainder_monic_divisor(int[:] dividend,
+                                             int[:] divisor, 
+                                             int[:,:] multiplication_table, 
+                                             int returnlen=0):
     
     cdef:
-        list remainder
-        int lendiv, lenrem, lead_remainder, i, j
-    
-    remainder = dividend[:]
-    lendiv = len(divisor)
-    lenrem = len(remainder)
+        int lendiv = len(divisor), lenrem = len(dividend), \
+            lead_remainder, i, j, lendiff
+        array[int] remainder, temparray
+        
     
     if lenrem < lendiv:
         if returnlen > lenrem:
-            return [0]*(returnlen-lenrem) + dividend
+            remainder = clone(array_int_template, returnlen, True)
+            lendiff = returnlen-lenrem
+            for i in range(lenrem):
+                remainder.data.as_ints[lendiff+i] = dividend[i]
+                # equivalent to [0]*(returnlen-lenrem) + dividend
+                return remainder
         else:
             return dividend[lenrem - returnlen:]
     
+    remainder = clone(array_int_template, lenrem, False)
+    for i in range(lenrem):
+        remainder.data.as_ints[i] = dividend[i]
+    
     i = 0
     # trim leading zeros before first iteration
-    while lenrem > i and remainder[i] == 0:
+    while lenrem > i and remainder.data.as_ints[i] == 0:
         i += 1
     
     while lenrem >= i+lendiv:
-        lead_remainder = remainder[i]
+        lead_remainder = remainder.data.as_ints[i]
 
         # XOR with the remainder
         # the result will reduce the degree of remainder by at least one
+        # i.e. lead_remainder will be 0 after the loop, and may be followed
+        # by some zeros
         for j in range(lendiv):
-            remainder[i+j] = (remainder[i+j] ^
+            remainder.data.as_ints[i+j] = (remainder.data.as_ints[i+j] ^
                             multiplication_table[divisor[j]][lead_remainder])
         
-        while lenrem > i and remainder[i] == 0:
+        while lenrem > i and remainder.data.as_ints[i] == 0:
             i += 1
     
     # result from the loop above should have length of at most len(generator)-1
@@ -194,7 +207,12 @@ cpdef list GF2_remainder_monic_divisor(list dividend, list divisor,
     # (usually when codeword is all 0), we take the tail with length as needed
     if returnlen:
         if returnlen > lenrem:
-            return [0]*(returnlen-lenrem) + remainder
+            temparray = clone(array_int_template, returnlen, True)
+            lendiff = returnlen-lenrem
+            for i in range(lenrem):
+                temparray.data.as_ints[lendiff+i] = remainder.data.as_ints[i]
+            # equivalent to [0]*(returnlen-lenrem) + remainder
+            return temparray
         else:
             return remainder[lenrem - returnlen:]
     else:
@@ -207,18 +225,17 @@ cpdef list GF2_remainder_monic_divisor(list dividend, list divisor,
 # know what power of alpha it is).
 # On the other hand, each element of alphaexps is a power of alpha for which 
 # we wish to evaluate, i.e. substitute x with \alpha^{exp}.
-cpdef list GF2_poly_eval(list px, int n, int k, 
-                         tuple gf_tables,
-                         list alphaexps, 
+cpdef array[int] GF2_poly_eval(int[:] px, int n, int k, int[:] alphaexps, 
+                         int[:] exptable, int[:,:] multiplication_table,
                          rootsonly=False):
     cdef:
-        dict exptable
-        list multiplication_table, results = [0]*len(alphaexps), roots = []
-        int degree=len(px)-1, order, reps=len(alphaexps), i, r_i, j, expnt
+        array[int] results, temp
+        int degree=len(px)-1, order, reps=len(alphaexps), \
+            i, j, r_i, expnt, numroots = 0
     
-    exptable, multiplication_table = gf_tables
     order=len(exptable)
     
+    results = clone(array_int_template, reps, True)
     
     for i in range(reps):
         r_i = 0
@@ -230,26 +247,43 @@ cpdef list GF2_poly_eval(list px, int n, int k,
             # r_i + \alpha^{log(px[j])} * x^{degree-j}
             r_i ^= (multiplication_table[px[j]]
                         [exptable[expnt*(degree-j)%order]])
-        results[i] = r_i
+        results.data.as_ints[i] = r_i
         if r_i == 0:
-            roots += [expnt]
+            numroots += 1
     
     if rootsonly:
-        return roots
+        temp = clone(array_int_template, numroots, False)
+        j = 0
+        for i in range(reps):
+            if results.data.as_ints[i] == 0:
+                temp.data.as_ints[j] = alphaexps[i]
+                j += 1
+        return temp
     else:
         return results
 
 
-cpdef list GF2_poly_add(list poly_a, list poly_b):
+cpdef array[int] GF2_poly_add(int[:] poly_a, int[:] poly_b):
     cdef:
         int lena = len(poly_a), lenb = len(poly_b)
-        int i, maxlen = max(lena, lenb)
+        int i, maxlen = max(lena, lenb), lendiff
+        array[int] result = clone(array_int_template, maxlen, True)
     
     if lena > lenb:
-        poly_b = [0]*(maxlen-lenb) + poly_b
+        lendiff = maxlen - lenb
+        for i in range(lendiff):
+            result.data.as_ints[i] = poly_a[i]
+        for i in range(lenb):
+            result.data.as_ints[lendiff+i] = poly_a[lendiff+i] ^ poly_b[i]
+
     else:
-        poly_a = [0]*(maxlen-lena) + poly_a
-    return [poly_a[i] ^ poly_b[i] for i in range(maxlen)]
+        lendiff = maxlen - lena
+        for i in range(lendiff):
+            result.data.as_ints[i] = poly_b[i]
+        for i in range(lena):
+            result.data.as_ints[lendiff+i] = poly_a[i] ^ poly_b[lendiff+i]
+
+    return result
     
 
 ###############################################################################

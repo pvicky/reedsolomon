@@ -1,3 +1,4 @@
+#cython: language_level=3, boundscheck=False, wraparound=False
 import math
 from cpython.array cimport array, clone, resize_smart
 

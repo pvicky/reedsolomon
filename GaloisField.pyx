@@ -26,19 +26,18 @@ To represent a 0, we use \alpha^{-\infty}
 # If either a or b is 0, it means multiply by 0, or to be precise 
 # multiplying with alpha with an exponent of negative infinity.
 cpdef int GF_product(int a, int b, 
-                     int[:] exptable, int[:] logtable):
+                     int n, int[:] exptable, int[:] logtable):
     
     # multiplied by x^{-\infty}
     if a==0 or b==0:
         return 0
     
     cdef:
-        int order
+        int expnt
     
-    order = len(exptable)
-    
-    if a < order+1 and b < order+1:
-        return exptable[(logtable[a] + logtable[b]) % order]
+    if a < n+1 and b < n+1:
+        expnt = (logtable[a] + logtable[b]) % n
+        return exptable[expnt]
     else:
         return -1
 
@@ -47,17 +46,15 @@ cpdef int GF_product(int a, int b,
 # exponential table -> x * x^{-1} = 1
 # Returns the integer form of a binary polynomial
 cpdef int GF_inverse(int x, 
-                     int[:] exptable, int[:] logtable):
+                     int n, int[:] exptable, int[:] logtable):
     cdef:
-        int order
-    
-    order = len(exptable)
+        int expnt
     
     # inverse of 0 (x^{-\infty}) is not defined
     if x == 0:
         return -1
-    
-    return exptable[(order - logtable[x]) % order]
+    expnt = (-logtable[x]) % n
+    return exptable[expnt]
 
 
 # Multiply poly_a and poly_b, where both are the integer form of two
@@ -230,23 +227,27 @@ cpdef array[int] GF2_poly_eval(int[:] px, int n, int k, int[:] alphaexps,
                          rootsonly=False):
     cdef:
         array[int] results, temp
-        int degree=len(px)-1, order, reps=len(alphaexps), \
-            i, j, r_i, expnt, numroots = 0
-    
-    order=len(exptable)
+        int degree=len(px)-1, reps=len(alphaexps), \
+            i, j, tempint, r_i, coef, numroots = 0
     
     results = clone(array_int_template, reps, True)
     
     for i in range(reps):
         r_i = 0
         
-        # expnt is what x is substituted with
-        expnt = alphaexps[i]
+        # coef is what x is substituted with
+        coef = alphaexps[i]
+        
         for j in range(degree+1):
+        # each iteration counts r_i + \alpha^{log(px[j])} * x^{degree-j}
             
-            # r_i + \alpha^{log(px[j])} * x^{degree-j}
-            r_i ^= (multiplication_table[px[j]]
-                        [exptable[expnt*(degree-j)%order]])
+            # \alpha^{coef * exponent of x}
+            tempint = (coef*(degree-j))%n
+            # lookup the result in the exponential table
+            tempint = exptable[tempint]
+            
+            r_i ^= (multiplication_table[px[j]][tempint])
+        
         results.data.as_ints[i] = r_i
         if r_i == 0:
             numroots += 1

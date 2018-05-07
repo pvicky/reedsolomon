@@ -76,7 +76,7 @@ cpdef str int2binstr(int integer,
     
 
 # converts input (binary number in array of 0s and 1s) into integer
-cpdef int bin2int(int[:] x):
+cpdef int bin2int(int[::1] x):
     #return np.sum((2**np.arange(len(x)-1,-1,-1))*x)
     cdef:
         int i, t = 0, lenx = len(x)
@@ -109,11 +109,11 @@ cpdef int hamming_distance(str str1, str str2):
 
 ###############################################################################
 
-cpdef array[int] GF2_polynomial_derivative(int[:] poly):
+cpdef array[int] GF2_polynomial_derivative(int[::1] poly):
     
     cdef:
         int i, r, j, degree = len(poly)-1
-        array[int] derivative = clone(array_int_template, degree, True), temp
+        array[int] derivative = clone(array_int_template, degree, False), temp
     
     for i in range(degree):
         #temp = [((degree-i)*j)%2 for j in int2bin(poly[i])]

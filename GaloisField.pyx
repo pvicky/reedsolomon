@@ -26,7 +26,7 @@ To represent a 0, we use \alpha^{-\infty}
 # If either a or b is 0, it means multiply by 0, or to be precise 
 # multiplying with alpha with an exponent of negative infinity.
 cpdef int GF_product(int a, int b, 
-                     int n, int[:] exptable, int[:] logtable):
+                     int n, int[::1] exptable, int[::1] logtable):
     
     # multiplied by x^{-\infty}
     if a==0 or b==0:
@@ -46,7 +46,7 @@ cpdef int GF_product(int a, int b,
 # exponential table -> x * x^{-1} = 1
 # Returns the integer form of a binary polynomial
 cpdef int GF_inverse(int x, 
-                     int n, int[:] exptable, int[:] logtable):
+                     int n, int[::1] exptable, int[::1] logtable):
     cdef:
         int expnt
     
@@ -60,8 +60,8 @@ cpdef int GF_inverse(int x,
 # Multiply poly_a and poly_b, where both are the integer form of two
 # polynomials in Galois Field.
 # Returns an list which represents the resulting polynomial.
-cpdef array[int] GF2_poly_product(int[:] poly_a, int[:] poly_b, 
-                                  int[:,:] multiplication_table):
+cpdef array[int] GF2_poly_product(int[::1] poly_a, int[::1] poly_b, 
+                                  int[:,::1] multiplication_table):
     
     # similar to convolution but look up table whenever multiplication occurs
     cdef:
@@ -72,14 +72,13 @@ cpdef array[int] GF2_poly_product(int[:] poly_a, int[:] poly_b,
     lenb = len(poly_b)
     support_end = lena+ lenb - 2
     
-    # result is initialized to [0] * (support_end+1)
-    result = clone(array_int_template, support_end+1, True)
+    result = clone(array_int_template, support_end+1, False)
     
     for i in range(0, support_end+1):
         total = 0
         for j in range(0, i+1):
             if j < lena and i-j < lenb:
-                total ^= multiplication_table[poly_a[j]][poly_b[i-j]]
+                total ^= multiplication_table[poly_a[j], poly_b[i-j]]
                 
         result.data.as_ints[i] = total
     return result
@@ -153,9 +152,9 @@ cpdef list GF2_div_remainder(list dividend, list divisor, tuple gf_tables,
 
 # Functionally a faster version of GF2_div_remainder, but limited to only
 # monic polynomial as divisor.
-cpdef array[int] GF2_remainder_monic_divisor(int[:] dividend,
-                                             int[:] divisor, 
-                                             int[:,:] multiplication_table, 
+cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
+                                             int[::1] divisor, 
+                                             int[:,::1] multiplication_table, 
                                              int returnlen=0):
     
     cdef:
@@ -193,7 +192,7 @@ cpdef array[int] GF2_remainder_monic_divisor(int[:] dividend,
         # by some zeros
         for j in range(lendiv):
             remainder.data.as_ints[i+j] = (remainder.data.as_ints[i+j] ^
-                            multiplication_table[divisor[j]][lead_remainder])
+                            multiplication_table[divisor[j], lead_remainder])
         
         while lenrem > i and remainder.data.as_ints[i] == 0:
             i += 1
@@ -222,15 +221,15 @@ cpdef array[int] GF2_remainder_monic_divisor(int[:] dividend,
 # know what power of alpha it is).
 # On the other hand, each element of alphaexps is a power of alpha for which 
 # we wish to evaluate, i.e. substitute x with \alpha^{exp}.
-cpdef array[int] GF2_poly_eval(int[:] px, int n, int k, int[:] alphaexps, 
-                         int[:] exptable, int[:,:] multiplication_table,
+cpdef array[int] GF2_poly_eval(int[::1] px, int n, int k, int[::1] alphaexps, 
+                         int[::1] exptable, int[:,::1] multiplication_table,
                          rootsonly=False):
     cdef:
         array[int] results, temp
         int degree=len(px)-1, reps=len(alphaexps), \
             i, j, tempint, r_i, coef, numroots = 0
     
-    results = clone(array_int_template, reps, True)
+    results = clone(array_int_template, reps, False)
     
     for i in range(reps):
         r_i = 0
@@ -246,7 +245,7 @@ cpdef array[int] GF2_poly_eval(int[:] px, int n, int k, int[:] alphaexps,
             # lookup the result in the exponential table
             tempint = exptable[tempint]
             
-            r_i ^= (multiplication_table[px[j]][tempint])
+            r_i ^= (multiplication_table[px[j], tempint])
         
         results.data.as_ints[i] = r_i
         if r_i == 0:
@@ -264,7 +263,7 @@ cpdef array[int] GF2_poly_eval(int[:] px, int n, int k, int[:] alphaexps,
         return results
 
 
-cpdef array[int] GF2_poly_add(int[:] poly_a, int[:] poly_b):
+cpdef array[int] GF2_poly_add(int[::1] poly_a, int[::1] poly_b):
     cdef:
         int lena = len(poly_a), lenb = len(poly_b)
         int i, maxlen = max(lena, lenb), lendiff

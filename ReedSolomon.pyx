@@ -159,15 +159,16 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
 
 
 # calculating distance of Berlekamp-Massey algorithm at kth iteration
-cdef int BM_delta(int[::1] syndromes, int[::1] cx,
+cdef int BM_delta(int[::1] syndromes, int[::1] cx, int lencx,
                   int[:,::1] multiplication_table, int k):
-    cdef int i, d = 0, lencx = len(cx)
+    cdef int i, t, d = 0
     
     # No bound checking as we rely on the fact that syndrome array is always
     # bigger than cx array. Length of syndrome array is 2t, while cx at most
     # has a degree of t.
     for i in range(lencx):
-            d ^= (multiplication_table[syndromes[k-lencx+i], cx[i]])
+        t = syndromes[k-lencx+i]
+        d ^= (multiplication_table[t, cx[i]])
     return d
 
 # Berlekamp-Massey algorithm, finding the error locator polynomial of 
@@ -178,7 +179,8 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
     
     cdef:
         array[int] cx, px, tx, subtractby
-        int N, L, l, dm, delta, dm_inv, dx_dm_inv
+        int N, L, l, dm, delta, dm_inv, dx_dm_inv, \
+            lencx, lenpx
     
     # N = 2t
     N = n-k
@@ -189,11 +191,13 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
     cx.data.as_ints[0] = 1
     px = clone(array_int_template, 1, False)
     px.data.as_ints[0] = 1
+    
+    lenpx, lencx = 1, 1
     L, l, dm = 0, 1, 1
     
     # k=0 is used for initial state so we start from k=1
     for k in range(1,N+1):
-        delta = BM_delta(syndromes, cx, multiplication_table, k)
+        delta = BM_delta(syndromes, cx, lencx, multiplication_table, k)
         
         if delta == 0:
             l += 1
@@ -205,12 +209,11 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
                 dm_inv = GF_inverse(dm, n, exptable,logtable)
                 dx_dm_inv = (multiplication_table[delta][dm_inv])
 
-                subtractby = clone(array_int_template, len(px)+l, True)
-                for i in range(len(px)):
+                subtractby = clone(array_int_template, lenpx+l, True)
+                for i in range(lenpx):
                     subtractby.data.as_ints[i] = (multiplication_table
                                                       [dx_dm_inv, 
                                                        px.data.as_ints[i]])
-                
                 cx = GF2_poly_add(cx, subtractby)
                 l += 1
                 
@@ -221,14 +224,15 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
                 dm_inv = GF_inverse(dm, n, exptable,logtable)
                 dx_dm_inv = (multiplication_table[delta][dm_inv])
 
-                subtractby = clone(array_int_template, len(px)+l, True)
-                for i in range(len(px)):
+                subtractby = clone(array_int_template, lenpx+l, True)
+                for i in range(lenpx):
                     subtractby.data.as_ints[i] = (multiplication_table
                                                       [dx_dm_inv,
                                                        px.data.as_ints[i]])
-                
                 cx = GF2_poly_add(cx, subtractby)
-                
+                # The assignment of p(x) only happens when L is incremented.
+                # Length of c(x) increases only in iterations where L changes.
+                lenpx, lencx = lencx, lenpx+l
                 px = tx
                 dm = delta
                 L = k-L

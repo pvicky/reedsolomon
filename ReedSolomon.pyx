@@ -374,15 +374,15 @@ cpdef str RS_encode(str m, int n, int k,
 # Input and output are in binary strings (0s and 1s).
 
 cpdef str RS_decode(str recv, int n, int k, 
-              tuple gf_tables, 
+              tuple gf_tables, int[::1] gx, 
               systematic=True):
     
     cdef:
         int[::1] exptable, logtable
         dict int2binstr_dict
         int[:,::1] multiplication_table
-        array[int] correctx, errorx, Lx, recvx, Syn
-        int i, double_t, s, sumsyn, lenrecv
+        array[int] recvx, remainder, Syn, Lx, cx, ex
+        int i, double_t, s, sumrem, lenrecv
     
     exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
     
@@ -391,40 +391,43 @@ cpdef str RS_decode(str recv, int n, int k,
     s = math.ceil(math.log2(n))
     
     recvx = binstr2int_eqlen(recv, s)
-    
-    # Calculate RS syndromes by evaluating the codeword polynomial.
-    # Generator poly assumed to be (x-alpha)*(x-alpha^2)*...*(x-alpha^(n-k)),
-    # so we evaluate cx starting from alpha^1 for S_1 to alpha^(n-k)
-    # for the last entry.
-    Syn = GF2_poly_eval(recvx, n, k, array('i', range(1, double_t+1)),
-                        exptable, multiplication_table)
-    
-    sumsyn = 0
-    for i in range(double_t):
-        sumsyn += Syn.data.as_ints[i]
     lenrecv = len(recvx)
     
-    if sumsyn != 0:
+    remainder = GF2_remainder_monic_divisor(recvx, gx,
+                                            multiplication_table)
+    sumrem = 0
+    for i in range(lenrecv):
+        sumrem += remainder.data.as_ints[i]
+    
+    if sumrem != 0:
+        
+        # Calculate RS syndromes by evaluating the codeword polynomial.
+        # Generator poly assumed to be (x-alpha)(x-alpha^2)*...*(x-alpha^(n-k))
+        # so we evaluate cx starting from alpha^1 for S_1 to alpha^(n-k)
+        # for the last entry.
+        Syn = GF2_poly_eval(recvx, n, k, array('i', range(1, double_t+1)),
+                            exptable, multiplication_table)
+        
         # find error locator polynomial with Berlekamp-Massey
         # then use Forney to calculate the error polynomial
         Lx = Berlekamp_Massey(Syn, n, k, 
                               exptable, logtable, multiplication_table)
-        errorx = Forney(Lx, Syn, n, k,
+        ex = Forney(Lx, Syn, n, k,
                     exptable, logtable, multiplication_table)
 
         # c(x) + e(x) = r(x)
         # c(x) = r(x) - e(x) ---> r(x) ^ e(x)
         # length not checked for speed, ensure they are same before this point
-        correctx = clone(array_int_template, lenrecv, True)
+        cx = clone(array_int_template, lenrecv, True)
         for i in range(lenrecv):
-            correctx.data.as_ints[i] = (recvx.data.as_ints[i] ^
-                                        errorx.data.as_ints[i])
-        #correctx = [recvx[i] ^ errorx[i] for i in range(lenrecv)]
+            cx.data.as_ints[i] = (recvx.data.as_ints[i] ^
+                                        ex.data.as_ints[i])
+        #cx = [recvx[i] ^ ex[i] for i in range(lenrecv)]
 
         # we only need k symbols out of n, so we cut the tail after k
         # if using systematic encoding
         
-        decoded = ''.join([int2binstr_dict[i] for i in correctx[:k]])
+        decoded = ''.join([int2binstr_dict[i] for i in cx[:k]])
         
         return decoded
     else:

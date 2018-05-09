@@ -11,7 +11,7 @@ tables required for the encoding and decoding.
 #cython: language_level=3, boundscheck=False, wraparound=False
 from GaloisField import * 
 import itertools, math
-from cpython.array cimport array, clone
+from cpython.array cimport array, clone, extend
 import numpy as np
 cimport numpy as np
 
@@ -32,11 +32,11 @@ cdef list RS_generator_polynomial(int lower, int upper):
         list t, poly, gx, gx_list = []
         int i
     
-    # [[1], [-1,0]] is interpreted as 
-    # ( 1 ) * (x^1) + (-1 * \alpha^1 + 0 * \alpha^0) * (x^0)
+    # [[-1,0], [1]] is interpreted as 
+    # (-1 * \alpha^1 + 0 * \alpha^0) * (x^0) +  1 * (x^1)
     # or simplified, (x - \alpha)
     for i in range(lower, upper+1):
-        t = [[1], [-1]+[0]*i]
+        t = [[0]*i+[-1], [1]]
         gx_list.append(t)
         
     gx = gx_list[0]
@@ -83,7 +83,7 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
     
     # coefficients of x, starting from x^degree to x^0
     # we initialize it to 1
-    x_coefs = [0]*(polydegree-1) + [1]
+    x_coefs = [1]
     
     int2binstr_dict[0] = '0'*bits_per_symbol
     
@@ -92,12 +92,12 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
     while exponent < order:
         
         # multiply the previous result by x
-        x_coefs = x_coefs + [0]
+        x_coefs = [0] + x_coefs
         
         # then find the remainder of its division by primitive polynomial
         remainder = GF_polynomial_div_remainder(x_coefs, primitive_poly, 
                                           returnlen=polydegree, modulo=2)
-        rem_array = array('i', remainder)
+        rem_array = array('i', remainder[::-1])
         remainder_int = bin2int(rem_array)
         exptable[exponent] = remainder_int
         logtable[remainder_int] = exponent
@@ -144,7 +144,7 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
         
         for j in range(alpha_degree+1):
             if x_coef[j] != 0:
-                t ^= exptable[(alpha_degree-j) % n]
+                t ^= exptable[j % n]
         
         generator_poly_int[i] = t
     
@@ -167,7 +167,7 @@ cdef int BM_delta(int[::1] syndromes, int[::1] cx, int lencx,
     # bigger than cx array. Length of syndrome array is 2t, while cx at most
     # has a degree of t.
     for i in range(lencx):
-        t = syndromes[k-lencx+i]
+        t = syndromes[k-1-i]
         d ^= (multiplication_table[t, cx[i]])
     return d
 
@@ -211,7 +211,7 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
 
                 subtractby = clone(array_int_template, lenpx+l, True)
                 for i in range(lenpx):
-                    subtractby.data.as_ints[i] = (multiplication_table
+                    subtractby.data.as_ints[l + i] = (multiplication_table
                                                       [dx_dm_inv, 
                                                        px.data.as_ints[i]])
                 cx = GF2_poly_add(cx, subtractby)
@@ -226,7 +226,7 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
 
                 subtractby = clone(array_int_template, lenpx+l, True)
                 for i in range(lenpx):
-                    subtractby.data.as_ints[i] = (multiplication_table
+                    subtractby.data.as_ints[l + i] = (multiplication_table
                                                       [dx_dm_inv,
                                                        px.data.as_ints[i]])
                 cx = GF2_poly_add(cx, subtractby)
@@ -249,27 +249,20 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
                        int[:,::1] multiplication_table):
     
     cdef:
-        array[int] Synd_poly, Syndrome_x_Lambda_poly, \
-             x_exp_2t, Omega_poly, Lambda_poly_ddx, Lx_roots, \
-             error_locs, roots_Omega_eval, roots_Lambda_ddx_eval, \
-             error_poly, result
+        array[int] Syndrome_x_Lambda_poly, x_exp_2t, Omega_poly, \
+             Lambda_poly_ddx, Lx_roots, error_locs, roots_Omega_eval, \
+             roots_Lambda_ddx_eval, error_poly
         int i, double_t = n-k, ome, lam, expnt, error, lenerr
     
-    # reverse the syndrome list since the syndrome written as polynomial
-    # starts with S1 * x^0 + S2 * x^1 + ...
-    Synd_poly = clone(array_int_template, double_t, False)
-    for i in range(double_t):
-        Synd_poly.data.as_ints[i] = Syndromes[double_t-1-i]
-    Syndrome_x_Lambda_poly = GF2_poly_product(Lambda_poly, Synd_poly,
+    Syndrome_x_Lambda_poly = GF2_poly_product(Lambda_poly, Syndromes,
                                              multiplication_table)
     
     # divide by x^{2t} and take the remainder
-    #x_exp_2t = [1] + [0]*(n-k)
     x_exp_2t = clone(array_int_template, double_t+1, True)
-    x_exp_2t.data.as_ints[0] = 1
+    x_exp_2t.data.as_ints[double_t] = 1
     
-    Omega_poly = GF2_remainder_monic_divisor(Syndrome_x_Lambda_poly, 
-                                             x_exp_2t, multiplication_table)
+    Omega_poly = GF2_remainder_monic_divisor(Syndrome_x_Lambda_poly, x_exp_2t,
+                                             multiplication_table)
     
     Lambda_poly_ddx = GF2_polynomial_derivative(Lambda_poly)
     
@@ -307,14 +300,8 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
             error = exptable[expnt]
         
         error_poly.data.as_ints[error_locs.data.as_ints[i]] = error
-
-    # reverse the list as the error locator puts lowest exponent of x
-    # at the start
-    result = clone(array_int_template, n, False)
-    for i in range(n):
-        result.data.as_ints[i] = error_poly.data.as_ints[n-1-i]
     
-    return result
+    return error_poly
 
 
 ###############################################################################
@@ -356,13 +343,13 @@ cpdef str RS_encode(str m, int n, int k,
     # by generator polynomial, take the remainder and concatenate.
     tx = clone(array_int_template, n, True)
     for i in range(k):
-        tx.data.as_ints[i] = mx.data.as_ints[i]
+        tx.data.as_ints[double_t + i] = mx.data.as_ints[i]
     rx = GF2_remainder_monic_divisor(tx, gx,
                                      multiplication_table, returnlen=double_t)
     
     rx_binstr = ''.join([int2binstr_dict[i] for i in rx])
     
-    codeword = m + rx_binstr
+    codeword = rx_binstr + m
     return codeword
     
     # TODO non-systematic encoding
@@ -427,11 +414,11 @@ cpdef str RS_decode(str recv, int n, int k,
         # we only need k symbols out of n, so we cut the tail after k
         # if using systematic encoding
         
-        decoded = ''.join([int2binstr_dict[i] for i in cx[:k]])
+        decoded = ''.join([int2binstr_dict[i] for i in cx[double_t:]])
         
         return decoded
     else:
-        return recv[:k*s]
+        return recv[double_t*s:]
     
     # TODO non-systematic decoding
 

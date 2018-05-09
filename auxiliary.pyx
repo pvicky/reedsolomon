@@ -77,7 +77,6 @@ cpdef str int2binstr(int integer,
 
 # converts input (binary number in array of 0s and 1s) into integer
 cpdef int bin2int(int[::1] x):
-    #return np.sum((2**np.arange(len(x)-1,-1,-1))*x)
     cdef:
         int i, t = 0, lenx = len(x)
     
@@ -116,11 +115,11 @@ cpdef array[int] GF2_polynomial_derivative(int[::1] poly):
         array[int] derivative = clone(array_int_template, degree, False)
     
     for i in range(degree):
-        multiplier = degree-i
+        multiplier = i+1
         
         # if multiplier is odd take the coefficient as it is
         if (multiplier & 1):
-            derivative.data.as_ints[i] = poly[i]
+            derivative.data.as_ints[i] = poly[i+1]
         # if multiplier is even the coefficient of x becomes 0
         else:
             derivative.data.as_ints[i] = 0

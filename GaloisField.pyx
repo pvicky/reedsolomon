@@ -1,24 +1,18 @@
 #cython: language_level=3, boundscheck=False, wraparound=False
 import math
 from auxiliary import *
-from cpython.array cimport array, clone
+from cpython.array cimport array, clone, extend
 import numpy as np
 cimport numpy as np
 
 cdef array array_int_template = array('i')
 
 """
-
-a polynomial p(x) in the GF(2^n) can be written as:
-
-p(x) = \alpha^{e_1} * x^{n-1} + \alpha^{e_2} * x^{n-2} + ... 
-       + \alpha^{e_n-1} * x + \alpha^{e_n}
-
-e is a placeholder for exponent, with range as given by [0, (2^n)-2].
-To represent a 0, we use \alpha^{-\infty}
-
+By convention, polynomials are written from the lowest exponent in increasing
+order. For example, [1,2,3] represents x^0 + 2*x^1 + 3*x^2.
+On the other hand, symbols are written with the most significant bit as first
+element. In other words, the highest exponent goes first.
 """
-
 
 # Multiply a and b, where both are integers form of some powers of alpha.
 # Note that a and b themselves are not the exponents of an alpha.
@@ -85,67 +79,75 @@ cpdef array[int] GF2_poly_product(int[::1] poly_a, int[::1] poly_b,
 
 
 # The input arguments dividend and divisor are polynomials where
-# each element is integer representation of a binary number that itself
-# represent a polynomial of x.
-# For example, 11 represent 1011 meaning x^3 + x + 1
-# If you want the polynomials represented as some power as alpha for each
-# power of x, then take the logtable of each element.
-cpdef list GF2_div_remainder(list dividend, list divisor, tuple gf_tables,
-                             int returnlen=0):
+# each element is a symbol in the form of an integer. A symbol is represents
+# a polynomial that is some power of alpha, encoded as binary number before
+# conversion to integer.
+# While the input polynomials dividend and divisor start with the lowest
+# exponent as their first element (i.e. x^0 + x^1 + x^2 + ...), in symbols
+# the lowest exponent is on the least significant (last) bit.
+cpdef array[int] GF2_div_remainder(int[::1] dividend, int[::1] divisor, int n,
+                                   int[::1] exptable, int[::1] logtable,
+                                   int returnlen=0):
     
     cdef:
-        list exptable, logtable, remainder, subtractby
-        int order, lendiv, i, j, divisor_lead_x_exponent, quot
+        array[int] remainder, temparray
+        int lenrem, lendiv, i, j, divisor_lead_x_exponent, quot, expnt, t
     
-    if len(dividend) < len(divisor):
-        return dividend
-    
-    exptable, logtable = gf_tables
-    order = len(exptable)
+    lenrem = len(dividend)
     lendiv = len(divisor)
+    if lenrem < lendiv:
+        if returnlen > lenrem:
+            remainder = clone(array_int_template, returnlen, True)
+            for i in range(lenrem):
+                remainder.data.as_ints[i] = dividend[i]
+                return remainder
     
-    remainder = dividend[:]
-    divisor_lead_x_exponent = logtable[divisor[0]]
+    remainder = clone(array_int_template, lenrem, False)
+    for i in range(lenrem):
+        remainder.data.as_ints[i] = dividend[i]
     
-    
-    i = 0
+    i = lenrem-1
     # trim leading zeros before first iteration
-    while len(remainder)>i and remainder[i] == 0:
-        i += 1
+    while i >= 0 and remainder.data.as_ints[i] == 0:
+        i -= 1
+    divisor_lead_x_exponent = logtable[divisor[lendiv-1]]
     
-    while len(remainder) >= i+lendiv:
-        # since we trim leading zeros first this will hold true if remainder
-        # is all zeros, so we can avoid doing a sum to prevent subtraction
-        # with None
-        if remainder[i] == 0:
-            break
+    while i+1 >= lendiv:
         
         # find how much the divisor should be multiplied by, in terms of
         # power of alpha
-        quot = (logtable[remainder[i]] - divisor_lead_x_exponent) % order
-    
-        # multiply divisor by quotient
-        subtractby = [exptable[(logtable[x]+quot) % order] if x!=0 else 0 
-                        for x in divisor]
+        quot = (logtable[remainder.data.as_ints[i]] - 
+                divisor_lead_x_exponent) % n
         
-        # XOR with the remainder
         # the result will reduce the degree of remainder by at least one
         for j in range(lendiv):
-            remainder[i+j] = remainder[i+j] ^ subtractby[j]
+            
+            t = divisor[lendiv-1-j]
+            # check to see if the coefficient is 0 because log(0) is -infinity
+            # exp(-infinity) is equal to 0, and XOR with 0 does not change the
+            # result, so we can skip
+            if t:
+                expnt = (logtable[t] + quot) % n
+                remainder.data.as_ints[i-j] = (remainder.data.as_ints[i-j] ^
+                                               exptable[expnt])
         
         # remove leading zero of the remainder
-        while len(remainder)>i and remainder[i] == 0:
-            i += 1
+        while i >= 0 and remainder.data.as_ints[i] == 0:
+            i -= 1
     
     # result from the loop above should have length of at most len(generator)-1
     # so we can add 0s in front until the desired length
     # in cases where remainder's length is more than the generator's
     # (usually when codeword is all 0), we take the tail with length as needed
     if returnlen:
-        if returnlen > len(remainder):
-            return [0]*(returnlen-len(remainder)) + remainder
+        if returnlen > lenrem:
+            temparray = clone(array_int_template, returnlen, True)
+            for i in range(lenrem):
+                temparray.data.as_ints[i] = remainder.data.as_ints[i]
+                
+            return temparray
         else:
-            return remainder[len(remainder) - returnlen:]
+            return remainder[:returnlen]
     else:
         return remainder
 
@@ -159,17 +161,15 @@ cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
     
     cdef:
         int lendiv = len(divisor), lenrem = len(dividend), \
-            lead_remainder, i, j, lendiff
+            lead_remainder, i, j
         array[int] remainder, temparray
         
     
     if lenrem < lendiv:
         if returnlen > lenrem:
             remainder = clone(array_int_template, returnlen, True)
-            lendiff = returnlen-lenrem
             for i in range(lenrem):
-                remainder.data.as_ints[lendiff+i] = dividend[i]
-                # equivalent to [0]*(returnlen-lenrem) + dividend
+                remainder.data.as_ints[i] = dividend[i]
                 return remainder
         else:
             return dividend[lenrem - returnlen:]
@@ -178,24 +178,24 @@ cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
     for i in range(lenrem):
         remainder.data.as_ints[i] = dividend[i]
     
-    i = 0
+    i = lenrem-1
     # trim leading zeros before first iteration
-    while lenrem > i and remainder.data.as_ints[i] == 0:
-        i += 1
+    while i >= 0 and remainder.data.as_ints[i] == 0:
+        i -= 1
     
-    while lenrem >= i+lendiv:
+    while i+1 >= lendiv:
         lead_remainder = remainder.data.as_ints[i]
-
+        
         # XOR with the remainder
         # the result will reduce the degree of remainder by at least one
         # i.e. lead_remainder will be 0 after the loop, and may be followed
         # by some zeros
         for j in range(lendiv):
-            remainder.data.as_ints[i+j] = (remainder.data.as_ints[i+j] ^
-                            multiplication_table[divisor[j], lead_remainder])
+            remainder.data.as_ints[i-j] = (remainder.data.as_ints[i-j] ^
+                    multiplication_table[divisor[lendiv-1-j], lead_remainder])
         
-        while lenrem > i and remainder.data.as_ints[i] == 0:
-            i += 1
+        while i >= 0 and remainder.data.as_ints[i] == 0:
+            i -= 1
     
     # result from the loop above should have length of at most len(generator)-1
     # so we can add 0s in front until the desired length
@@ -204,13 +204,12 @@ cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
     if returnlen:
         if returnlen > lenrem:
             temparray = clone(array_int_template, returnlen, True)
-            lendiff = returnlen-lenrem
             for i in range(lenrem):
-                temparray.data.as_ints[lendiff+i] = remainder.data.as_ints[i]
-            # equivalent to [0]*(returnlen-lenrem) + remainder
+                temparray.data.as_ints[i] = remainder.data.as_ints[i]
+                
             return temparray
         else:
-            return remainder[lenrem - returnlen:]
+            return remainder[:returnlen]
     else:
         return remainder
 
@@ -241,7 +240,7 @@ cpdef array[int] GF2_poly_eval(int[::1] px, int n, int k, int[::1] alphaexps,
         # each iteration counts r_i + \alpha^{log(px[j])} * x^{degree-j}
             
             # \alpha^{coef * exponent of x}
-            tempint = (coef*(degree-j))%n
+            tempint = (coef*j)%n
             # lookup the result in the exponential table
             tempint = exptable[tempint]
             
@@ -271,17 +270,17 @@ cpdef array[int] GF2_poly_add(int[::1] poly_a, int[::1] poly_b):
     
     if lena > lenb:
         lendiff = maxlen - lenb
-        for i in range(lendiff):
-            result.data.as_ints[i] = poly_a[i]
         for i in range(lenb):
-            result.data.as_ints[lendiff+i] = poly_a[lendiff+i] ^ poly_b[i]
+            result.data.as_ints[i] = poly_a[i] ^ poly_b[i]
+        for i in range(lendiff):
+            result.data.as_ints[lenb + i] = poly_a[lenb + i]
 
     else:
         lendiff = maxlen - lena
-        for i in range(lendiff):
-            result.data.as_ints[i] = poly_b[i]
         for i in range(lena):
-            result.data.as_ints[lendiff+i] = poly_a[i] ^ poly_b[lendiff+i]
+            result.data.as_ints[i] = poly_a[i] ^ poly_b[i]
+        for i in range(lendiff):
+            result.data.as_ints[lena + i] = poly_b[lena + i]
 
     return result
     
@@ -296,7 +295,7 @@ cdef list polynomial_product(list poly1, list poly2):
     result_list = []
     
     for i in range(len(poly2)):
-        t = [poly2[i]*x for x in poly1] + [0]*(len(poly2)-i-1)
+        t = [0]*(len(poly2)-i-1) + [poly2[i]*x for x in poly1]
         result_list.append(t)
         if len(t) > maxlen:
             maxlen = len(t)
@@ -337,7 +336,7 @@ cpdef list GF_polynomial_product(list a, list b, int modulo=0):
                 
         result_k = [0]*maxlen
         for t in tlist:
-            t = [0]*(maxlen-len(t)) + t
+            t = t + [0]*(maxlen-len(t))
             result_k = [result_k[j] + t[j] for j in range(maxlen)]
             
         if modulo !=0:
@@ -366,30 +365,30 @@ cpdef list GF_polynomial_div_remainder(list dividend, list divisor,
     lendiv = len(divisor)
     lenrem = len(remainder)
     
-    i = 0
-    while lenrem > i and remainder[i] == 0:
-        i += 1
+    i = lenrem-1
+    while i >= 0 and remainder[i] == 0:
+        i -= 1
     
-    while lenrem >= i+lendiv:
-        quot = remainder[i] / divisor[0]
+    while i+1 >= lendiv:
+        quot = remainder[i] / divisor[lendiv-1]
         
         for j in range(lendiv):
             if modulo != 0:
-                remainder[i+j] = (remainder[i+j] - quot*divisor[j]) % modulo
+                remainder[i-j] = (remainder[i-j] - quot*divisor[lendiv-1-j]) % modulo
             else:
-                remainder[i+j] = remainder[i+j] - quot*divisor[j]
+                remainder[i-j] = remainder[i-j] - quot*divisor[lendiv-1-j]
         
         # remove leading zero of the remainder
-        while lenrem > i and remainder[i] == 0:
-            i += 1
+        while i >= 0 and remainder[i] == 0:
+            i -= 1
         
     # cut or pad the array to the desired length
     if returnlen:
         if returnlen > len(remainder):
-            return [0]*(returnlen-len(remainder))+remainder
+            return remainder + [0]*(returnlen-len(remainder))
         else:
-            return remainder[len(remainder)-returnlen:]
-    # or return the array as long as the highest degree with leading 1
+            return remainder[:returnlen]
+    # or return the full array
     else:
         return remainder
 

@@ -103,8 +103,21 @@ cpdef array[int] binstr2int_eqlen(str binstr, int z):
 
 cpdef int hamming_distance(str str1, str str2):
     cdef:
-        str x,y
-    return len([1 for x,y in zip(str1,str2) if x!=y])
+        int i, len1, len2, dist
+        
+    len1 = len(str1)
+    len2 = len(str2)
+    
+    # not defined for not equal length
+    if len1 != len2:
+        return -1
+    else:
+        dist = 0
+        for i in range(len1):
+            if str1[i] != str2[i]:
+                dist += 1
+        return dist
+    
 
 ###############################################################################
 

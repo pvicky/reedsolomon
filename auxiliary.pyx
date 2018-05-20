@@ -75,14 +75,17 @@ cpdef str int2binstr(int integer,
     return r
     
 
-# converts input (binary number in array of 0s and 1s) into integer
-cpdef int bin2int(int[::1] x):
+# Converts input (binary number in array of 0s and 1s) into integer.
+# Most significant bit is at the start of input.
+# It is assumed the length of input is equal to bitslen. If it is smaller,
+# then we assume it is padded with 0s (but we don't need to do the padding).
+cpdef int bin2int(int[::1] x, int bitslen):
     cdef:
-        int i, t = 0, lenx = len(x)
+        int i, t = 0
     
-    for i in range(lenx):
+    for i in range(bitslen):
         if x[i]==1:
-            t += 1<<(lenx-i-1)
+            t += 1<<(bitslen-i-1)
     return t
     
 
@@ -101,7 +104,24 @@ cpdef array[int] binstr2int_eqlen(str binstr, int z):
     return mx
 
 
-cpdef int hamming_distance(str str1, str str2):
+# Converts a continuous array of binary numbers {0,1} (as integers) into
+# an array of k integers.
+# bitpi is the number of bits per integer.
+cpdef array[int] binarray2intarray(int[::1] ar, int k, int bitpi):
+    cdef:
+        array[int] mx
+        int x, lenar = len(ar), lenresult, ctr=0
+    lenresult = k
+    mx = clone(array_int_template, lenresult, False)
+    for x in range(lenresult):
+        mx.data.as_ints[x] = bin2int(ar[ctr:ctr+bitpi], bitpi)
+        ctr += bitpi
+    
+    return mx
+
+
+# Calculates hamming distance of two array of integers.
+cpdef int hamming_distance(int[::1] str1, int[::1] str2):
     cdef:
         int i, len1, len2, dist
         
@@ -121,6 +141,7 @@ cpdef int hamming_distance(str str1, str str2):
 
 ###############################################################################
 
+# Finds the derivative of a given input polynomial.
 cpdef array[int] GF2_polynomial_derivative(int[::1] poly):
     
     cdef:
@@ -139,6 +160,7 @@ cpdef array[int] GF2_polynomial_derivative(int[::1] poly):
     return derivative
 
 
+# Convolution of two lists of integers.
 cpdef list convolve(list lst_a, list lst_b):
     
     cdef:

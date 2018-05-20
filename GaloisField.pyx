@@ -95,12 +95,17 @@ cpdef array[int] GF2_div_remainder(int[::1] dividend, int[::1] divisor, int n,
     
     lenrem = len(dividend)
     lendiv = len(divisor)
+    
     if lenrem < lendiv:
-        if returnlen > lenrem:
+        if returnlen and returnlen > lenrem:
             remainder = clone(array_int_template, returnlen, True)
             for i in range(lenrem):
                 remainder.data.as_ints[i] = dividend[i]
                 return remainder
+        elif returnlen and returnlen <= lenrem:
+            return dividend[lenrem - returnlen:]
+        else:
+            return dividend
     
     remainder = clone(array_int_template, lenrem, False)
     for i in range(lenrem):
@@ -163,16 +168,17 @@ cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
         int lendiv = len(divisor), lenrem = len(dividend), \
             lead_remainder, i, j
         array[int] remainder, temparray
-        
     
     if lenrem < lendiv:
-        if returnlen > lenrem:
+        if returnlen and returnlen > lenrem:
             remainder = clone(array_int_template, returnlen, True)
             for i in range(lenrem):
                 remainder.data.as_ints[i] = dividend[i]
                 return remainder
-        else:
+        elif returnlen and returnlen <= lenrem:
             return dividend[lenrem - returnlen:]
+        else:
+            return dividend
     
     remainder = clone(array_int_template, lenrem, False)
     for i in range(lenrem):
@@ -355,7 +361,10 @@ cpdef list GF_polynomial_div_remainder(list dividend, list divisor,
                                       int returnlen=0, int modulo=0):
     
     if len(dividend) < len(divisor):
-        return dividend
+        if returnlen:
+            return dividend + [0]*(returnlen-len(dividend))
+        else:
+            return dividend
     
     cdef:
         int quot, i, j, lendiv, lenrem

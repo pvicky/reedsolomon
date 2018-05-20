@@ -59,7 +59,7 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
     
     cdef:
         array[int] exptable, logtable, rem_array
-        dict int2binstr_dict = {}
+        dict int2bin_dict = {}
         int polydegree, order, bits_per_symbol, exponent, remainder_int, i
         list x_coefs, remainder, t, logkeys
         np.ndarray[int, ndim=2] multiplication_table
@@ -85,7 +85,7 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
     # we initialize it to 1
     x_coefs = [1]
     
-    int2binstr_dict[0] = '0'*bits_per_symbol
+    int2bin_dict[0] = array('i', [0]*bits_per_symbol)
     
     # start from alpha^1
     exponent = 1
@@ -98,13 +98,13 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
         remainder = GF_polynomial_div_remainder(x_coefs, primitive_poly, 
                                           returnlen=polydegree, modulo=2)
         rem_array = array('i', remainder[::-1])
-        remainder_int = bin2int(rem_array)
+        remainder_int = bin2int(rem_array, bits_per_symbol)
         exptable[exponent] = remainder_int
         logtable[remainder_int] = exponent
-        int2binstr_dict[exponent] = int2binstr(exponent, 
+        int2bin_dict[exponent] = int2bin(exponent, 
                                                returnlen=bits_per_symbol)
         exponent += 1
-    int2binstr_dict[exponent] = int2binstr(exponent, 
+    int2bin_dict[exponent] = int2bin(exponent, 
                                            returnlen=bits_per_symbol)
     
     # first row is all zeros, skip
@@ -112,7 +112,7 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
         for j in range(order+1):
             multiplication_table[i,j] = GF_product(i, j, n, exptable,logtable)
             
-    return exptable, logtable, int2binstr_dict, multiplication_table
+    return exptable, logtable, int2bin_dict, multiplication_table
 
 
 # Calls the functions to create the generator polynomial and relevant tables.
@@ -312,29 +312,26 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
 # n-k parity bits.
 # Input and output are in binary strings (0s and 1s).
 
-cpdef str RS_encode(str m, int n, int k, 
+cpdef array[int] RS_encode(array[int] m, int n, int k, 
               tuple gf_tables, int[::1] gx, 
               systematic=True):
     cdef:
-        dict int2binstr_dict
+        dict int2bin_dict
         int[:,::1] multiplication_table
         array[int] mx, tx, rx
-        int s, double_t, lenm, i
-        str codeword, rx_binstr
+        int s, double_t, lenm, i, j, c
+        array[int] codeword, tarray
     
-    int2binstr_dict, multiplication_table = gf_tables
+    int2bin_dict, multiplication_table = gf_tables
     # symbol size, bits per symbol
     s = math.ceil(math.log2(n))
     # n-k = 2t
     double_t = n-k
     lenm = len(m)
     
-    if lenm < k*s:
-        m += '0'*(k*s-lenm)
-    
     # split codeword into equal length s then
     # turn it into polynomial form
-    mx = binstr2int_eqlen(m, s)
+    mx = binarray2intarray(m, k, s)
     
     # r(x) = (m(x) * x^{2t}) modulo g(x)
     # c(x) = m(x) * x^{2t} - r(x)
@@ -347,9 +344,18 @@ cpdef str RS_encode(str m, int n, int k,
     rx = GF2_remainder_monic_divisor(tx, gx,
                                      multiplication_table, returnlen=double_t)
     
-    rx_binstr = ''.join([int2binstr_dict[i] for i in rx])
+    codeword = clone(array_int_template, s*n, True)
     
-    codeword = rx_binstr + m
+    c = 0
+    for i in range(double_t):
+        tarray = int2bin_dict[rx.data.as_ints[i]]
+        for j in range(s):
+            codeword.data.as_ints[c] = tarray.data.as_ints[j]
+            c += 1
+    
+    for i in range(lenm):
+        codeword.data.as_ints[i+c] = m.data.as_ints[i]
+    
     return codeword
     
     # TODO non-systematic encoding
@@ -360,24 +366,24 @@ cpdef str RS_encode(str m, int n, int k,
 # decoded message of length k.
 # Input and output are in binary strings (0s and 1s).
 
-cpdef str RS_decode(str recv, int n, int k, 
+cpdef array[int] RS_decode(array[int] recv, int n, int k, 
               tuple gf_tables, int[::1] gx, 
               systematic=True):
     
     cdef:
         int[::1] exptable, logtable
-        dict int2binstr_dict
+        dict int2bin_dict
         int[:,::1] multiplication_table
-        array[int] recvx, remainder, Syn, Lx, cx, ex
-        int i, double_t, s, sumrem, lenrecv
+        array[int] recvx, remainder, Syn, Lx, cx, ex, decoded, tarray
+        int i, j, c, double_t, s, sumrem, lenrecv
     
-    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
+    exptable, logtable, int2bin_dict, multiplication_table = gf_tables
     
     double_t = n-k
     # s represents the number of bits per symbol.
     s = math.ceil(math.log2(n))
     
-    recvx = binstr2int_eqlen(recv, s)
+    recvx = binarray2intarray(recv, n, s)
     lenrecv = len(recvx)
     
     remainder = GF2_remainder_monic_divisor(recvx, gx,
@@ -405,16 +411,21 @@ cpdef str RS_decode(str recv, int n, int k,
         # c(x) + e(x) = r(x)
         # c(x) = r(x) - e(x) ---> r(x) ^ e(x)
         # length not checked for speed, ensure they are same before this point
-        cx = clone(array_int_template, lenrecv, True)
+        cx = clone(array_int_template, lenrecv, False)
         for i in range(lenrecv):
             cx.data.as_ints[i] = (recvx.data.as_ints[i] ^
                                         ex.data.as_ints[i])
-        #cx = [recvx[i] ^ ex[i] for i in range(lenrecv)]
 
-        # we only need k symbols out of n, so we cut the tail after k
+        # we only need k symbols out of n, so we cut the first n-k symbols
         # if using systematic encoding
         
-        decoded = ''.join([int2binstr_dict[i] for i in cx[double_t:]])
+        decoded = clone(array_int_template, s*k, True)
+        c = 0
+        for i in range(double_t, n):
+            tarray = int2bin_dict[cx.data.as_ints[i]]
+            for j in range(s):
+                decoded.data.as_ints[c] = tarray.data.as_ints[j]
+                c += 1
         
         return decoded
     else:

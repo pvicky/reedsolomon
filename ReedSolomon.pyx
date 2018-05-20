@@ -59,7 +59,7 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
     
     cdef:
         array[int] exptable, logtable, rem_array
-        dict int2bin_dict = {}
+        list int2bin_list
         int polydegree, order, bits_per_symbol, exponent, remainder_int, i
         list x_coefs, remainder, t, logkeys
         np.ndarray[int, ndim=2] multiplication_table
@@ -85,7 +85,8 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
     # we initialize it to 1
     x_coefs = [1]
     
-    int2bin_dict[0] = array('i', [0]*bits_per_symbol)
+    int2bin_list = [None]*(order+1)
+    int2bin_list[0] = array('i', [0]*bits_per_symbol)
     
     # start from alpha^1
     exponent = 1
@@ -101,18 +102,17 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
         remainder_int = bin2int(rem_array, bits_per_symbol)
         exptable[exponent] = remainder_int
         logtable[remainder_int] = exponent
-        int2bin_dict[exponent] = int2bin(exponent, 
-                                               returnlen=bits_per_symbol)
+        int2bin_list[exponent] = int2bin(exponent, returnlen=bits_per_symbol)
         exponent += 1
-    int2bin_dict[exponent] = int2bin(exponent, 
-                                           returnlen=bits_per_symbol)
+        
+    int2bin_list[exponent] = int2bin(exponent, returnlen=bits_per_symbol)
     
     # first row is all zeros, skip
     for i in range(1,order+1):
         for j in range(order+1):
             multiplication_table[i,j] = GF_product(i, j, n, exptable,logtable)
             
-    return exptable, logtable, int2bin_dict, multiplication_table
+    return exptable, logtable, int2bin_list, multiplication_table
 
 
 # Calls the functions to create the generator polynomial and relevant tables.
@@ -122,7 +122,7 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
 
     cdef:
         tuple gf_tables
-        dict int2binstr_dict
+        list int2bin_list
         int[:,:] multiplication_table
         list generator_poly_alpha, generator_poly_int, x_coef
         int i, j, t, alpha_degree, polylen
@@ -130,7 +130,7 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
         int[:] exptable, logtable
 
     gf_tables = RS_generate_tables(n, primitive_poly)
-    exptable, logtable, int2binstr_dict, multiplication_table = gf_tables
+    exptable, logtable, int2bin_list, multiplication_table = gf_tables
     
     generator_poly_alpha = RS_generator_polynomial(1,n-k)
     
@@ -316,13 +316,13 @@ cpdef array[int] RS_encode(array[int] m, int n, int k,
               tuple gf_tables, int[::1] gx, 
               systematic=True):
     cdef:
-        dict int2bin_dict
+        list int2bin_list
         int[:,::1] multiplication_table
         array[int] mx, tx, rx
         int s, double_t, lenm, i, j, c
         array[int] codeword, tarray
     
-    int2bin_dict, multiplication_table = gf_tables
+    int2bin_list, multiplication_table = gf_tables
     # symbol size, bits per symbol
     s = math.ceil(math.log2(n))
     # n-k = 2t
@@ -348,7 +348,7 @@ cpdef array[int] RS_encode(array[int] m, int n, int k,
     
     c = 0
     for i in range(double_t):
-        tarray = int2bin_dict[rx.data.as_ints[i]]
+        tarray = int2bin_list[rx.data.as_ints[i]]
         for j in range(s):
             codeword.data.as_ints[c] = tarray.data.as_ints[j]
             c += 1
@@ -372,12 +372,12 @@ cpdef array[int] RS_decode(array[int] recv, int n, int k,
     
     cdef:
         int[::1] exptable, logtable
-        dict int2bin_dict
+        list int2bin_list
         int[:,::1] multiplication_table
         array[int] recvx, remainder, Syn, Lx, cx, ex, decoded, tarray
         int i, j, c, double_t, s, sumrem, lenrecv
     
-    exptable, logtable, int2bin_dict, multiplication_table = gf_tables
+    exptable, logtable, int2bin_list, multiplication_table = gf_tables
     
     double_t = n-k
     # s represents the number of bits per symbol.
@@ -422,7 +422,7 @@ cpdef array[int] RS_decode(array[int] recv, int n, int k,
         decoded = clone(array_int_template, s*k, True)
         c = 0
         for i in range(double_t, n):
-            tarray = int2bin_dict[cx.data.as_ints[i]]
+            tarray = int2bin_list[cx.data.as_ints[i]]
             for j in range(s):
                 decoded.data.as_ints[c] = tarray.data.as_ints[j]
                 c += 1

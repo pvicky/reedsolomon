@@ -110,11 +110,16 @@ cpdef array[int] binstr2int_eqlen(str binstr, int z):
 cpdef array[int] binarray2intarray(int[::1] ar, int k, int bitpi):
     cdef:
         array[int] mx
-        int x, lenar = len(ar), lenresult, ctr=0
+        int x, i, t, lenar = len(ar), lenresult, ctr=0
     lenresult = k
-    mx = clone(array_int_template, lenresult, False)
+    mx = clone(array_int_template, lenresult, True)
+    
     for x in range(lenresult):
-        mx.data.as_ints[x] = bin2int(ar[ctr:ctr+bitpi], bitpi)
+        t = 0
+        for i in range(bitpi):
+            t += (ar[ctr + i] & 1) << (bitpi-i-1)
+            
+        mx.data.as_ints[x] = t
         ctr += bitpi
     
     return mx

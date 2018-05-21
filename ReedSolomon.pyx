@@ -1,3 +1,13 @@
+#cython: language_level=3, boundscheck=False, wraparound=False
+from GaloisField import * 
+import itertools, math
+from cpython.array cimport array, clone, extend
+import numpy as np
+cimport numpy as np
+
+cdef array array_int_template = array('i')
+
+
 """
 This file contains the functions necessary to encode a message with Reed
 Solomon error-correcting code, and to decode an RS codeword into its original
@@ -7,15 +17,6 @@ The primitive polynomial, n and k have to be known to build the generator
 tables required for the encoding and decoding.
 
 """
-
-#cython: language_level=3, boundscheck=False, wraparound=False
-from GaloisField import * 
-import itertools, math
-from cpython.array cimport array, clone, extend
-import numpy as np
-cimport numpy as np
-
-cdef array array_int_template = array('i')
 
 ###############################################################################
 

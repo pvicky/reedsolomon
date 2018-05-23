@@ -1,12 +1,12 @@
 #cython: language_level=3, boundscheck=False, wraparound=False
 from GaloisField import * 
-import itertools, math
-from cpython.array cimport array, clone, extend
+import math
+from cpython.array cimport array, clone
 import numpy as np
 cimport numpy as np
 
 cdef array array_int_template = array('i')
-
+cdef array array_char_template = array('b')
 
 """
 This file contains the functions necessary to encode a message with Reed
@@ -87,7 +87,7 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
     x_coefs = [1]
     
     int2bin_list = [None]*(order+1)
-    int2bin_list[0] = array('i', [0]*bits_per_symbol)
+    int2bin_list[0] = array('b', [0]*bits_per_symbol)
     
     # start from alpha^1
     exponent = 1
@@ -331,7 +331,7 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
 # n-k parity bits.
 # Input and output are in binary strings (0s and 1s).
 
-cpdef array[int] RS_encode(array[int] m, int n, int k, 
+cpdef array[char] RS_encode(char[::1] m, int n, int k, 
               tuple gf_tables, int[::1] gx, 
               systematic=True):
     cdef:
@@ -339,7 +339,7 @@ cpdef array[int] RS_encode(array[int] m, int n, int k,
         int[:,::1] multiplication_table
         array[int] mx, tx, rx
         int s, double_t, lenm, i, j, c
-        array[int] codeword, tarray
+        array[char] codeword, tarray
     
     int2bin_list, multiplication_table = gf_tables
     # symbol size, bits per symbol
@@ -363,17 +363,17 @@ cpdef array[int] RS_encode(array[int] m, int n, int k,
     rx = GF2_remainder_monic_divisor(tx, gx,
                                      multiplication_table, returnlen=double_t)
     
-    codeword = clone(array_int_template, s*n, True)
+    codeword = clone(array_char_template, s*n, True)
     
     c = 0
     for i in range(double_t):
         tarray = int2bin_list[rx.data.as_ints[i]]
         for j in range(s):
-            codeword.data.as_ints[c] = tarray.data.as_ints[j]
+            codeword.data.as_chars[c] = tarray.data.as_chars[j]
             c += 1
     
     for i in range(lenm):
-        codeword.data.as_ints[i+c] = m.data.as_ints[i]
+        codeword.data.as_chars[i+c] = m[i]
     
     return codeword
     
@@ -385,7 +385,7 @@ cpdef array[int] RS_encode(array[int] m, int n, int k,
 # decoded message of length k.
 # Input and output are in binary strings (0s and 1s).
 
-cpdef array[int] RS_decode(array[int] recv, int n, int k, 
+cpdef array[char] RS_decode(char[::1] recv, int n, int k, 
               tuple gf_tables, int[::1] gx, 
               systematic=True):
     
@@ -393,7 +393,8 @@ cpdef array[int] RS_decode(array[int] recv, int n, int k,
         int[::1] exptable, logtable
         list int2bin_list
         int[:,::1] multiplication_table
-        array[int] recvx, remainder, Syn, Lx, cx, ex, decoded, tarray
+        array[int] recvx, remainder, Syn, Lx, cx, ex
+        array[char] decoded, tarray
         int i, j, c, double_t, s, sumrem, lenrecv
     
     exptable, logtable, int2bin_list, multiplication_table = gf_tables
@@ -411,7 +412,7 @@ cpdef array[int] RS_decode(array[int] recv, int n, int k,
     for i in range(lenrecv):
         sumrem += remainder.data.as_ints[i]
     
-    if sumrem != 0:
+    if sumrem:
         
         # Calculate RS syndromes by evaluating the codeword polynomial.
         # Generator poly assumed to be (x-alpha)(x-alpha^2)*...*(x-alpha^(n-k))
@@ -438,18 +439,22 @@ cpdef array[int] RS_decode(array[int] recv, int n, int k,
         # we only need k symbols out of n, so we cut the first n-k symbols
         # if using systematic encoding
         
-        decoded = clone(array_int_template, s*k, True)
+        decoded = clone(array_char_template, s*k, True)
         
         c = 0
         for i in range(double_t, n):
             tarray = int2bin_list[cx.data.as_ints[i]]
             for j in range(s):
-                decoded.data.as_ints[c] = tarray.data.as_ints[j]
+                decoded.data.as_chars[c] = tarray.data.as_chars[j]
                 c += 1
         
         return decoded
     else:
-        return recv[double_t*s:]
+        decoded = clone(array_char_template, s*k, True)
+        for i in range(s*k):
+            c = double_t * s
+            decoded.data.as_chars[i] = recv[c + i]
+        return decoded
     
     # TODO non-systematic decoding
 

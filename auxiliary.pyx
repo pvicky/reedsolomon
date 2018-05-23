@@ -1,46 +1,47 @@
 #cython: language_level=3, boundscheck=False, wraparound=False
 import math
-from cpython.array cimport array, clone, resize_smart
+from cpython.array cimport array, clone
 
 cdef array array_int_template = array('i')
+cdef array array_char_template = array('b')
 
 # Converts an integer into a binary number as a list of integers {0,1}.
 # Negative integers are not handled, we simply return None.
 # alternative method: [int(x) for x in bin(integer)[2:]]
-cpdef array[int] int2bin(int integer, 
+cpdef array[char] int2bin(int integer, 
                   int returnlen=0):
     
     cdef:
         int i, t = 0, lendiff
-        array[int] r, temp
+        array[char] r, r2
+        array[char] temp
         
     if integer < 0:
-        r = clone(array_int_template, 0, False)
+        r = clone(array_char_template, 0, False)
     
     elif integer == 0:
-        r = clone(array_int_template, 1, True)
+        r = clone(array_char_template, 1, True)
     
     else:
-        temp = clone(array_int_template, 0 ,False)
+        temp = clone(array_char_template, 32, False)
         while integer>0:
-            resize_smart(temp, t+1)
-            temp.data.as_ints[t] = integer&1
+            temp.data.as_chars[t] = integer&1
             t += 1
             integer = integer>>1
         
-        r = clone(array_int_template, t, True)
+        r = clone(array_char_template, t, True)
         for i in range(t):
-            r.data.as_ints[i] = temp.data.as_ints[t-i-1]
+            r.data.as_chars[i] = temp.data.as_chars[t-i-1]
         
     if returnlen:
         if returnlen > len(r):
             
             # r = [0]*(returnlen-len(r)) + r
             lendiff = returnlen-t
-            temp = clone(array_int_template, returnlen, True)
+            r2 = clone(array_char_template, returnlen, True)
             for i in range(t):
-                temp.data.as_ints[lendiff+i] = r.data.as_ints[i]
-            r = temp
+                r2.data.as_chars[lendiff+i] = r.data.as_chars[i]
+            r = r2
         else:
             r = r[:returnlen]
     
@@ -107,7 +108,7 @@ cpdef array[int] binstr2int_eqlen(str binstr, int z):
 # Converts a continuous array of binary numbers {0,1} (as integers) into
 # an array of k integers.
 # bitpi is the number of bits per integer.
-cpdef array[int] binarray2intarray(int[::1] ar, int k, int bitpi):
+cpdef array[int] binarray2intarray(char[::1] ar, int k, int bitpi):
     cdef:
         array[int] mx
         int x, i, t, lenar = len(ar), lenresult, ctr=0

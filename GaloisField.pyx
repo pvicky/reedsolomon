@@ -1,7 +1,7 @@
 #cython: language_level=3, boundscheck=False, wraparound=False
 import math
 from auxiliary import *
-from cpython.array cimport array, clone, extend
+from cpython.array cimport array, clone
 import numpy as np
 cimport numpy as np
 

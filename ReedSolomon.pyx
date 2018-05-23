@@ -124,11 +124,11 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
     cdef:
         tuple gf_tables
         list int2bin_list
-        int[:,:] multiplication_table
+        int[:,::1] multiplication_table
         list generator_poly_alpha, generator_poly_int, x_coef
         int i, j, t, alpha_degree, polylen
         array[int] gpoly
-        int[:] exptable, logtable
+        int[::1] exptable, logtable
 
     gf_tables = RS_generate_tables(n, primitive_poly)
     exptable, logtable, int2bin_list, multiplication_table = gf_tables
@@ -181,17 +181,22 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
     cdef:
         array[int] cx, px, tx, subtractby
         int N, L, l, dm, delta, dm_inv, dx_dm_inv, \
-            lencx, lenpx
+            lencx, lenpx, i, subtractlen
     
     # N = 2t
     N = n-k
     
     # c(x) and p(x) is initialized to [1]
-    #cx, px = [1], [1]
-    cx = clone(array_int_template, 1, False)
+    # c(x) has to be filled with zeros because the result is used in other
+    # function which does not know its length. Even if this function calculates
+    # result correctly it may cause error when finding the error locator.
+    cx = clone(array_int_template, N, True)
     cx.data.as_ints[0] = 1
-    px = clone(array_int_template, 1, False)
+    px = clone(array_int_template, N, False)
     px.data.as_ints[0] = 1
+    
+    tx = clone(array_int_template, N, False)
+    subtractby = clone(array_int_template, N, True)
     
     lenpx, lencx = 1, 1
     L, l, dm = 0, 1, 1
@@ -207,38 +212,51 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
             if 2*L >= k:
                 
                 # cx = cx - d * dm^{-1} * px * x^{l}
-                dm_inv = GF_inverse(dm, n, exptable,logtable)
+                dm_inv = exptable[(-logtable[dm]) % n]
                 dx_dm_inv = (multiplication_table[delta][dm_inv])
-
-                subtractby = clone(array_int_template, lenpx+l, True)
+                
+                for i in range(l):
+                    subtractby.data.as_ints[i] = 0
                 for i in range(lenpx):
                     subtractby.data.as_ints[l + i] = (multiplication_table
                                                       [dx_dm_inv, 
                                                        px.data.as_ints[i]])
-                cx = GF2_poly_add(cx, subtractby)
+                subtractlen = lenpx + l
+                GF2_poly_add(cx, lencx, subtractby, subtractlen)
                 l += 1
                 
             # update L,px,dm and reset l after finding cx for this iteration
             else:
-                tx = cx
+                # tx = cx
+                for i in range(lencx):
+                    tx.data.as_ints[i] = cx.data.as_ints[i]
                 
-                dm_inv = GF_inverse(dm, n, exptable,logtable)
+                dm_inv = exptable[(-logtable[dm]) % n]
                 dx_dm_inv = (multiplication_table[delta][dm_inv])
-
-                subtractby = clone(array_int_template, lenpx+l, True)
+                
+                for i in range(l):
+                    subtractby.data.as_ints[i] = 0
                 for i in range(lenpx):
                     subtractby.data.as_ints[l + i] = (multiplication_table
                                                       [dx_dm_inv,
                                                        px.data.as_ints[i]])
-                cx = GF2_poly_add(cx, subtractby)
+                subtractlen = lenpx + l
+                GF2_poly_add(cx, lencx, subtractby, subtractlen)
+                
+                # px = tx
+                # We make tx points to the old px so we don't lose the pointer
+                # to px. Otherwise, px then points to tx and we lose track of
+                # pointer to the initial px forever.
+                px, tx = tx, px
+                
                 # The assignment of p(x) only happens when L is incremented.
                 # Length of c(x) increases only in iterations where L changes.
-                lenpx, lencx = lencx, lenpx+l
-                px = tx
+                lenpx, lencx = lencx, subtractlen
+                
                 dm = delta
                 L = k-L
                 l = 1
-        
+                
     # \Lambda(x) is the c(x) after final iteration
     return cx
 
@@ -421,6 +439,7 @@ cpdef array[int] RS_decode(array[int] recv, int n, int k,
         # if using systematic encoding
         
         decoded = clone(array_int_template, s*k, True)
+        
         c = 0
         for i in range(double_t, n):
             tarray = int2bin_list[cx.data.as_ints[i]]

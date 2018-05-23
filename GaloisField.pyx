@@ -268,27 +268,36 @@ cpdef array[int] GF2_poly_eval(int[::1] px, int n, int k, int[::1] alphaexps,
         return results
 
 
-cpdef array[int] GF2_poly_add(int[::1] poly_a, int[::1] poly_b):
+# Add two polynomials and store the result in the first polynomial, returns an
+# integer that indicates the length of resulting polynomial.
+# To ensure correctness, have to make sure length of array a >= b before
+# passing them to the function, as result is stored in a.
+# Note that length of a polynomial is not necessarily the same as the length
+# of the array. A polynomial can be shorter than the array it is contained in;
+# in calculation, their length is defined by the parameter integers.
+# Thus, length of polynomial b can be larger than polynomial a, as long as
+# length of array a is greater than or equal to length of polynomial b. 
+# This way, the first polynomial can be reused as buffer for successive uses.
+cpdef int GF2_poly_add(int[::1] poly_a, int len_a,
+                       int[::1] poly_b, int len_b):
     cdef:
-        int lena = len(poly_a), lenb = len(poly_b)
-        int i, maxlen = max(lena, lenb), lendiff
-        array[int] result = clone(array_int_template, maxlen, True)
+        int i, lendiff
     
-    if lena > lenb:
-        lendiff = maxlen - lenb
-        for i in range(lenb):
-            result.data.as_ints[i] = poly_a[i] ^ poly_b[i]
-        for i in range(lendiff):
-            result.data.as_ints[lenb + i] = poly_a[lenb + i]
+    if len_a > len_b:
+        lendiff = len_a - len_b
+        for i in range(len_b):
+            poly_a[i] = poly_a[i] ^ poly_b[i]
+        
+        return len_a
 
     else:
-        lendiff = maxlen - lena
-        for i in range(lena):
-            result.data.as_ints[i] = poly_a[i] ^ poly_b[i]
+        lendiff = len_b - len_a
+        for i in range(len_a):
+            poly_a[i] = poly_a[i] ^ poly_b[i]
         for i in range(lendiff):
-            result.data.as_ints[lena + i] = poly_b[lena + i]
+            poly_a[len_a + i] = poly_b[len_a + i]
 
-    return result
+        return len_b
     
 
 ###############################################################################

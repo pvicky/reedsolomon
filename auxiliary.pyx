@@ -25,13 +25,13 @@ cpdef array[char] int2bin(int integer,
     else:
         temp = clone(array_char_template, 32, False)
         while integer>0:
-            temp.data.as_chars[t] = integer&1
+            temp.data.as_schars[t] = integer&1
             t += 1
             integer = integer>>1
         
         r = clone(array_char_template, t, True)
         for i in range(t):
-            r.data.as_chars[i] = temp.data.as_chars[t-i-1]
+            r.data.as_schars[i] = temp.data.as_schars[t-i-1]
         
     if returnlen:
         if returnlen > len(r):
@@ -40,7 +40,7 @@ cpdef array[char] int2bin(int integer,
             lendiff = returnlen-t
             r2 = clone(array_char_template, returnlen, True)
             for i in range(t):
-                r2.data.as_chars[lendiff+i] = r.data.as_chars[i]
+                r2.data.as_schars[lendiff+i] = r.data.as_schars[i]
             r = r2
         else:
             r = r[:returnlen]
@@ -111,11 +111,11 @@ cpdef array[int] binstr2int_eqlen(str binstr, int z):
 cpdef array[int] binarray2intarray(char[::1] ar, int k, int bitpi):
     cdef:
         array[int] mx
-        int x, i, t, lenar = len(ar), lenresult, ctr=0
-    lenresult = k
-    mx = clone(array_int_template, lenresult, True)
+        int x, i, t, lenar = len(ar), ctr=0
     
-    for x in range(lenresult):
+    mx = clone(array_int_template, k, True)
+    
+    for x in range(k):
         t = 0
         for i in range(bitpi):
             t += (ar[ctr + i] & 1) << (bitpi-i-1)

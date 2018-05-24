@@ -1,4 +1,4 @@
-#cython: language_level=3, boundscheck=False, wraparound=False
+#cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 import math
 from auxiliary import *
 from cpython.array cimport array, clone
@@ -228,41 +228,46 @@ cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
 # we wish to evaluate, i.e. substitute x with \alpha^{exp}.
 cpdef array[int] GF2_poly_eval(int[::1] px, int n, int k, int[::1] alphaexps, 
                          int[::1] exptable, int[:,::1] multiplication_table,
-                         rootsonly=False):
+                         rootsonly = False):
     cdef:
         array[int] results, temp
         int degree=len(px)-1, reps=len(alphaexps), \
-            i, j, tempint, r_i, coef, numroots = 0
+            i, j, result_i, expnt, numroots = 0, t, t2
     
     results = clone(array_int_template, reps, False)
     
     for i in range(reps):
-        r_i = 0
+        result_i = 0
         
-        # coef is what x is substituted with
-        coef = alphaexps[i]
-        
+        # \alpha^{expnt} is what x is substituted with
+        expnt = alphaexps[i]
+        t = 0
         for j in range(degree+1):
-        # each iteration counts r_i + \alpha^{log(px[j])} * x^{degree-j}
+        # each iteration counts result_i + \alpha^{log(px[j])} * x^{degree-j}
             
-            # \alpha^{coef * exponent of x}
-            tempint = (coef*j)%n
-            # lookup the result in the exponential table
-            tempint = exptable[tempint]
+            t2 = t%n
+            # \alpha^{expnt * power of x}
+            t2 = exptable[t2]
             
-            r_i ^= (multiplication_table[px[j], tempint])
+            result_i ^= (multiplication_table[px[j], t2])
+            
+            # it is faster to keep incrementing t and use another variable
+            # to modulo it with n than to modulo t with n at every step
+            t += expnt
         
-        results.data.as_ints[i] = r_i
-        if r_i == 0:
-            numroots += 1
+        results.data.as_ints[i] = result_i
+        # increment if result_i == 0:
+        numroots += result_i==0
     
     if rootsonly:
         temp = clone(array_int_template, numroots, False)
         j = 0
-        for i in range(reps):
+        i = 0
+        while j < numroots:
             if results.data.as_ints[i] == 0:
                 temp.data.as_ints[j] = alphaexps[i]
                 j += 1
+            i += 1
         return temp
     else:
         return results

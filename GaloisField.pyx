@@ -397,7 +397,8 @@ cpdef list GF_polynomial_div_remainder(list dividend, list divisor,
         
         for j in range(lendiv):
             if modulo != 0:
-                remainder[i-j] = (remainder[i-j] - quot*divisor[lendiv-1-j]) % modulo
+                remainder[i-j] = (remainder[i-j] 
+                                  - quot*divisor[lendiv-1-j]) % modulo
             else:
                 remainder[i-j] = remainder[i-j] - quot*divisor[lendiv-1-j]
         
@@ -418,5 +419,33 @@ cpdef list GF_polynomial_div_remainder(list dividend, list divisor,
 
 ###############################################################################
 
+# f(x) = (x-\beta) (x-\beta^q) ... (x-\beta^{q^{r-1}} for GF(q^m)
+# Calculates minimal polynomial for \alpha^i, i = 0, 1, 2, ..., n-1
+cpdef dict GF2_minimal_polynomial(int n, int[::1] exptable,
+                                  int[:,::1] multiplication_table):
+    cdef:
+        dict min_poly = {}
+        int i, j
+        set conjugates
+    
+    # 1 + x
+    min_poly[0] = array('i', [1, 1])
+    
+    for i in range(1,n):
+        if i not in min_poly:
+            conjugates = set([i])
+            j = (2*i) % n
+            while i != j:
+                conjugates.add(j)
+                j = (j*2) % n
+            
+            temp = array('i', [1])
+            for j in conjugates:
+                temp = GF2_poly_product(temp, array('i', [exptable[j], 1]),
+                                        multiplication_table)
+            
+            for j in conjugates:
+                min_poly[j] = temp
+    return min_poly
 
 

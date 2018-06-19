@@ -1,5 +1,6 @@
 #cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
-from GaloisField import * 
+from . import GaloisField as GF
+from . import auxiliary as aux
 import math
 from cpython.array cimport array, clone, zero
 import numpy as np
@@ -42,7 +43,7 @@ cdef list RS_generator_polynomial(int lower, int upper):
         
     gx = gx_list[0]
     for poly in gx_list[1:]:
-        gx = GF_polynomial_product(gx, poly, modulo=2)
+        gx = GF.GF_polynomial_product(gx, poly, modulo=2)
     return gx
 
 
@@ -97,21 +98,23 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
         x_coefs = [0] + x_coefs
         
         # then find the remainder of its division by primitive polynomial
-        remainder = GF_polynomial_div_remainder(x_coefs, primitive_poly, 
+        remainder = GF.GF_polynomial_div_remainder(x_coefs, primitive_poly, 
                                           returnlen=polydegree, modulo=2)
         rem_array = array('i', remainder[::-1])
-        remainder_int = bin2int(rem_array, bits_per_symbol)
+        remainder_int = aux.bin2int(rem_array, bits_per_symbol)
         exptable[exponent] = remainder_int
         logtable[remainder_int] = exponent
-        int2bin_list[exponent] = int2bin(exponent, returnlen=bits_per_symbol)
+        int2bin_list[exponent] = aux.int2bin(exponent, 
+                                             returnlen=bits_per_symbol)
         exponent += 1
         
-    int2bin_list[exponent] = int2bin(exponent, returnlen=bits_per_symbol)
+    int2bin_list[exponent] = aux.int2bin(exponent, returnlen=bits_per_symbol)
     
     # first row is all zeros, skip
     for i in range(1,order+1):
         for j in range(order+1):
-            multiplication_table[i,j] = GF_product(i, j, n, exptable,logtable)
+            multiplication_table[i,j] = GF.GF_product(i, j, n, 
+                                                      exptable,logtable)
             
     return exptable, logtable, multiplication_table, int2bin_list
 
@@ -221,7 +224,7 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
             
             if 2*L >= k:
 
-                GF2_poly_add(cx, lencx, subtractby, subtractlen)
+                GF.GF2_poly_add(cx, lencx, subtractby, subtractlen)
                 l += 1
                 
             # update L,px,dm and reset l after finding cx for this iteration
@@ -230,7 +233,7 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
                 for i in range(lencx):
                     tx.data.as_ints[i] = cx.data.as_ints[i]
                 
-                GF2_poly_add(cx, lencx, subtractby, subtractlen)
+                GF.GF2_poly_add(cx, lencx, subtractby, subtractlen)
                 
                 # px = tx
                 # We make tx points to the old px so we don't lose the pointer
@@ -275,24 +278,25 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
     x_exp_2t = clone(array_int_template, double_t+1, True)
     x_exp_2t.data.as_ints[double_t] = 1
     
-    Syndrome_x_Lambda_poly = GF2_poly_product(Lambda_poly, Syndromes,
+    Syndrome_x_Lambda_poly = GF.GF2_poly_product(Lambda_poly, Syndromes,
                                              multiplication_table)
     
-    Omega_poly = GF2_remainder_monic_divisor(Syndrome_x_Lambda_poly, x_exp_2t,
-                                             multiplication_table)
+    Omega_poly = GF.GF2_remainder_monic_divisor(Syndrome_x_Lambda_poly,
+                                                x_exp_2t,
+                                                multiplication_table)
     
-    Lambda_poly_ddx = GF2_polynomial_derivative(Lambda_poly)
+    Lambda_poly_ddx = aux.GF2_polynomial_derivative(Lambda_poly)
     
     # roots of L(x) are all exp where L(\alpha^{exp}) evaluates to 0
     # evaluate L(x) for all alpha^i, i=0,1,...,n
-    Lx_roots = GF2_poly_eval(Lambda_poly, n, k, buffer_n,
+    Lx_roots = GF.GF2_poly_eval(Lambda_poly, n, k, buffer_n,
                              exptable, multiplication_table,
                              rootsonly=True)
     
-    roots_Omega_eval = GF2_poly_eval(Omega_poly, n, k, Lx_roots,
+    roots_Omega_eval = GF.GF2_poly_eval(Omega_poly, n, k, Lx_roots,
                                      exptable,multiplication_table)
     
-    roots_Lambda_ddx_eval = GF2_poly_eval(Lambda_poly_ddx, n, k, Lx_roots,
+    roots_Lambda_ddx_eval = GF.GF2_poly_eval(Lambda_poly_ddx, n, k, Lx_roots,
                                           exptable,multiplication_table)
     
     lenerr = len(Lx_roots)
@@ -346,7 +350,7 @@ cpdef array[char] RS_encode(char[::1] m, int n, int k,
     
     # split codeword into equal length s then
     # turn it into polynomial form
-    mx = binarray2intarray(m, k, s)
+    mx = aux.binarray2intarray(m, k, s)
     
     # r(x) = (m(x) * x^{2t}) modulo g(x)
     # c(x) = m(x) * x^{2t} - r(x)
@@ -356,7 +360,7 @@ cpdef array[char] RS_encode(char[::1] m, int n, int k,
     tx = clone(array_int_template, n, True)
     for i in range(k):
         tx.data.as_ints[double_t + i] = mx.data.as_ints[i]
-    rx = GF2_remainder_monic_divisor(tx, gx,
+    rx = GF.GF2_remainder_monic_divisor(tx, gx,
                                      multiplication_table, returnlen=double_t)
     
     codeword = clone(array_char_template, s*n, True)
@@ -395,10 +399,10 @@ cpdef array[char] RS_decode(char[::1] recv, int n, int k,
     # s represents the number of bits per symbol.
     s = math.ceil(math.log2(n))
     
-    recvx = binarray2intarray(recv, n, s)
+    recvx = aux.binarray2intarray(recv, n, s)
     lenrecv = len(recvx)
     
-    remainder = GF2_remainder_monic_divisor(recvx, gx,
+    remainder = GF.GF2_remainder_monic_divisor(recvx, gx,
                                             multiplication_table)
     sumrem = 0
     for i in range(double_t):
@@ -415,7 +419,7 @@ cpdef array[char] RS_decode(char[::1] recv, int n, int k,
         buffer_2t = clone(array_int_template, double_t, False)
         for i in range(double_t):
             buffer_2t.data.as_ints[i] = i+1
-        Syn = GF2_poly_eval(recvx, n, k, buffer_2t,
+        Syn = GF.GF2_poly_eval(recvx, n, k, buffer_2t,
                             exptable, multiplication_table)
         
         # find error locator polynomial with Berlekamp-Massey

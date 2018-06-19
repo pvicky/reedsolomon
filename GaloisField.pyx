@@ -1,6 +1,5 @@
 #cython: language_level=3, boundscheck=False, wraparound=False, cdivision=True
 import math
-from auxiliary import *
 from cpython.array cimport array, clone
 import numpy as np
 cimport numpy as np
@@ -47,7 +46,7 @@ cpdef int GF_inverse(int x,
     # inverse of 0 (x^{-\infty}) is not defined
     if x == 0:
         return -1
-    expnt = (-logtable[x]) % n
+    expnt = (n-logtable[x]) % n
     return exptable[expnt]
 
 

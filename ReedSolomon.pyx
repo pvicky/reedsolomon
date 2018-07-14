@@ -48,7 +48,7 @@ cdef list RS_generator_polynomial(int lower, int upper):
 
 
 # Mainly to fill the exponential and log tables used for encoding and decoding.
-# Veys of exptable range from 0 to (2^n)-1.
+# Keys of exptable are in range [0, (2^n)-2].
 # Its values are the integer forms of binary polynomials as result of
 # exponentiating alpha to the power indicated by its key, then take the modulo
 # of its division with given primitive polynomial.
@@ -57,18 +57,20 @@ cdef list RS_generator_polynomial(int lower, int upper):
 # On the other hand, logtable is the inverse of exptable.
 # The keys of logtable are the values in exptable while its values are the
 # keys in exptable.
-cdef tuple RS_generate_tables(int n, list primitive_poly):
+# Here, the number of bits per symbol is determined by the length of the
+# primitive polynomial.
+cdef tuple RS_generate_tables(list primitive_poly):
     
     cdef:
         array[int] exptable, logtable, rem_array
         list int2bin_list
-        int polydegree, order, bits_per_symbol, exponent, remainder_int, i
+        int polydegree, order, n, bits_per_symbol, exponent, remainder_int, i
         list x_coefs, remainder, t, logkeys
         np.ndarray[int, ndim=2] multiplication_table
          
     polydegree = len(primitive_poly)-1
-    order = 2**(polydegree)-1
-    bits_per_symbol = math.ceil(math.log2(n))
+    bits_per_symbol = polydegree
+    order = (1 << polydegree) - 1
          
     exptable = clone(array_int_template, order, True)
     logtable = clone(array_int_template, order+1, True)
@@ -100,6 +102,9 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
         # then find the remainder of its division by primitive polynomial
         remainder = GF.GF_polynomial_div_remainder(x_coefs, primitive_poly, 
                                           returnlen=polydegree, modulo=2)
+        
+        # reverse the array because we want the poly notation of exptable
+        # to have the highest power of x at the start
         rem_array = array('i', remainder[::-1])
         remainder_int = aux.bin2int(rem_array, bits_per_symbol)
         exptable[exponent] = remainder_int
@@ -113,7 +118,7 @@ cdef tuple RS_generate_tables(int n, list primitive_poly):
     # first row is all zeros, skip
     for i in range(1,order+1):
         for j in range(order+1):
-            multiplication_table[i,j] = GF.GF_product(i, j, n, 
+            multiplication_table[i,j] = GF.GF_product(i, j, order, 
                                                       exptable,logtable)
             
     return exptable, logtable, multiplication_table, int2bin_list
@@ -133,7 +138,7 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
         array[int] gpoly
         int[::1] exptable, logtable
 
-    gf_tables = RS_generate_tables(n, primitive_poly)
+    gf_tables = RS_generate_tables(primitive_poly)
     exptable, logtable, multiplication_table, int2bin_list = gf_tables
     
     generator_poly_alpha = RS_generator_polynomial(1,n-k)

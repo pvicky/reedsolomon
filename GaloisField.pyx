@@ -370,6 +370,7 @@ cpdef list GF_polynomial_product(list a, list b, int modulo=0):
 # Find the remainder of polynomial division, not restricted to GF(2^n) and
 # does not require GF tables.
 # Note that the coefficients are not in powers of alpha, just regular integers.
+# The first element represents x^0.
 cpdef list GF_polynomial_div_remainder(list dividend, list divisor,
                                       int returnlen=0, int modulo=0):
     

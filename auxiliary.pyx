@@ -105,17 +105,18 @@ cpdef array[int] binstr2int_eqlen(str binstr, int z):
     return mx
 
 
-# Converts a continuous array of binary numbers {0,1} (as integers) into
-# an array of k integers.
+# Converts a continuous array of binary numbers {0,1} (as signed char) into
+# an array of n integers.
 # bitpi is the number of bits per integer.
-cpdef array[int] binarray2intarray(char[::1] ar, int k, int bitpi):
+cpdef array[int] binarray2intarray(char[::1] ar, int n, int bitpi):
     cdef:
         array[int] mx
-        int x, i, t, lenar = len(ar), ctr=0
+        int x, i, t, real_len, ctr=0
     
-    mx = clone(array_int_template, k, True)
+    real_len = len(ar)//bitpi
+    mx = clone(array_int_template, n, True)
     
-    for x in range(k):
+    for x in range(real_len):
         t = 0
         for i in range(bitpi):
             t += (ar[ctr + i] & 1) << (bitpi-i-1)

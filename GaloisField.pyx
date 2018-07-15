@@ -90,27 +90,35 @@ cpdef array[int] GF2_div_remainder(int[::1] dividend, int[::1] divisor, int n,
     
     cdef:
         array[int] remainder, temparray
-        int lenrem, lendiv, i, j, divisor_lead_x_exponent, quot, expnt, t
+        int lendividend, lendiv, i, j, divisor_lead_x_exponent, quot, expnt, t
     
-    lenrem = len(dividend)
+    lendividend = len(dividend)
     lendiv = len(divisor)
     
-    if lenrem < lendiv:
-        if returnlen and returnlen > lenrem:
+    # degree of dividend is already smaller than divisor
+    if lendividend < lendiv:
+        if returnlen:
             remainder = clone(array_int_template, returnlen, True)
-            for i in range(lenrem):
-                remainder.data.as_ints[i] = dividend[i]
+            if returnlen > lendividend:
+                for i in range(lendividend):
+                    remainder.data.as_ints[i] = dividend[i]
                 return remainder
-        elif returnlen and returnlen <= lenrem:
-            return dividend[lenrem - returnlen:]
+            else:
+                for i in range(returnlen):
+                    remainder.data.as_ints[i] = dividend[i]
+                return remainder
         else:
-            return dividend
+            remainder = clone(array_int_template, lendividend, True)
+            for i in range(lendividend):
+                remainder.data.as_ints[i] = dividend[i]
+            return remainder
     
-    remainder = clone(array_int_template, lenrem, False)
-    for i in range(lenrem):
+    
+    remainder = clone(array_int_template, lendividend, True)
+    for i in range(lendividend):
         remainder.data.as_ints[i] = dividend[i]
     
-    i = lenrem-1
+    i = lendividend-1
     # trim leading zeros before first iteration
     while i >= 0 and remainder.data.as_ints[i] == 0:
         i -= 1
@@ -144,9 +152,9 @@ cpdef array[int] GF2_div_remainder(int[::1] dividend, int[::1] divisor, int n,
     # in cases where remainder's length is more than the generator's
     # (usually when codeword is all 0), we take the tail with length as needed
     if returnlen:
-        if returnlen > lenrem:
+        if returnlen > lendividend:
             temparray = clone(array_int_template, returnlen, True)
-            for i in range(lenrem):
+            for i in range(lendividend):
                 temparray.data.as_ints[i] = remainder.data.as_ints[i]
                 
             return temparray
@@ -164,26 +172,34 @@ cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
                                              int returnlen=0):
     
     cdef:
-        int lendiv = len(divisor), lenrem = len(dividend), \
+        int lendiv = len(divisor), lendividend = len(dividend), \
             lead_remainder, i, j
         array[int] remainder, temparray
     
-    if lenrem < lendiv:
-        if returnlen and returnlen > lenrem:
+    # degree of dividend is already smaller than divisor
+    if lendividend < lendiv:
+        if returnlen:
             remainder = clone(array_int_template, returnlen, True)
-            for i in range(lenrem):
-                remainder.data.as_ints[i] = dividend[i]
+            if returnlen > lendividend:
+                for i in range(lendividend):
+                    remainder.data.as_ints[i] = dividend[i]
                 return remainder
-        elif returnlen and returnlen <= lenrem:
-            return dividend[lenrem - returnlen:]
+            else:
+                for i in range(returnlen):
+                    remainder.data.as_ints[i] = dividend[i]
+                return remainder
         else:
-            return dividend
+            remainder = clone(array_int_template, lendividend, True)
+            for i in range(lendividend):
+                remainder.data.as_ints[i] = dividend[i]
+            return remainder
     
-    remainder = clone(array_int_template, lenrem, False)
-    for i in range(lenrem):
+    
+    remainder = clone(array_int_template, lendividend, True)
+    for i in range(lendividend):
         remainder.data.as_ints[i] = dividend[i]
     
-    i = lenrem-1
+    i = lendividend-1
     # trim leading zeros before first iteration
     while i >= 0 and remainder.data.as_ints[i] == 0:
         i -= 1
@@ -207,9 +223,9 @@ cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
     # in cases where remainder's length is more than the generator's
     # (usually when codeword is all 0), we take the tail with length as needed
     if returnlen:
-        if returnlen > lenrem:
+        if returnlen > lendividend:
             temparray = clone(array_int_template, returnlen, True)
-            for i in range(lenrem):
+            for i in range(lendividend):
                 temparray.data.as_ints[i] = remainder.data.as_ints[i]
                 
             return temparray
@@ -225,7 +241,7 @@ cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
 # know what power of alpha it is).
 # On the other hand, each element of alphaexps is a power of alpha for which 
 # we wish to evaluate, i.e. substitute x with \alpha^{exp}.
-cpdef array[int] GF2_poly_eval(int[::1] px, int n, int k, int[::1] alphaexps, 
+cpdef array[int] GF2_poly_eval(int[::1] px, int n, int[::1] alphaexps, 
                          int[::1] exptable, int[:,::1] multiplication_table,
                          rootsonly = False):
     cdef:
@@ -233,7 +249,7 @@ cpdef array[int] GF2_poly_eval(int[::1] px, int n, int k, int[::1] alphaexps,
         int degree=len(px)-1, reps=len(alphaexps), \
             i, j, result_i, expnt, numroots = 0, t, t2
     
-    results = clone(array_int_template, reps, False)
+    results = clone(array_int_template, reps, True)
     
     for i in range(reps):
         result_i = 0
@@ -259,7 +275,7 @@ cpdef array[int] GF2_poly_eval(int[::1] px, int n, int k, int[::1] alphaexps,
         numroots += result_i==0
     
     if rootsonly:
-        temp = clone(array_int_template, numroots, False)
+        temp = clone(array_int_template, numroots, True)
         j = 0
         i = 0
         while j < numroots:

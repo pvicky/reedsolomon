@@ -134,7 +134,7 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
         list int2bin_list
         int[:,::1] multiplication_table
         list generator_poly_alpha, generator_poly_int, x_coef
-        int i, j, t, alpha_degree, polylen
+        int i, j, t, alpha_degree, polylen, real_n
         array[int] gpoly
         int[::1] exptable, logtable
 
@@ -146,6 +146,7 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
     polylen = len(generator_poly_alpha)
     generator_poly_int = [0]*polylen
     
+    real_n = (1 << (len(primitive_poly)-1)) - 1
     for i in range(polylen):
         x_coef = generator_poly_alpha[i]
         alpha_degree = len(x_coef)-1
@@ -153,7 +154,7 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
         
         for j in range(alpha_degree+1):
             if x_coef[j] != 0:
-                t ^= exptable[j % n]
+                t ^= exptable[j % real_n]
         
         generator_poly_int[i] = t
     
@@ -210,6 +211,7 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
     L, l, dm = 0, 1, 1
     
     # k=0 is used for initial state so we start from k=1
+    # this k is different to k given in argument
     for k in range(1,N+1):
         delta = BM_delta(syndromes, cx, lencx, multiplication_table, k)
         
@@ -275,7 +277,7 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
         int i, double_t = n-k, ome, lam, expnt, error, lenerr
     
     
-    buffer_n = clone(array_int_template, n, False)
+    buffer_n = clone(array_int_template, n, True)
     for i in range(n):
         buffer_n.data.as_ints[i] = i
     
@@ -294,20 +296,20 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
     
     # roots of L(x) are all exp where L(\alpha^{exp}) evaluates to 0
     # evaluate L(x) for all alpha^i, i=0,1,...,n
-    Lx_roots = GF.GF2_poly_eval(Lambda_poly, n, k, buffer_n,
+    Lx_roots = GF.GF2_poly_eval(Lambda_poly, n, buffer_n,
                              exptable, multiplication_table,
                              rootsonly=True)
     
-    roots_Omega_eval = GF.GF2_poly_eval(Omega_poly, n, k, Lx_roots,
+    roots_Omega_eval = GF.GF2_poly_eval(Omega_poly, n, Lx_roots,
                                      exptable,multiplication_table)
     
-    roots_Lambda_ddx_eval = GF.GF2_poly_eval(Lambda_poly_ddx, n, k, Lx_roots,
+    roots_Lambda_ddx_eval = GF.GF2_poly_eval(Lambda_poly_ddx, n, Lx_roots,
                                           exptable,multiplication_table)
     
     lenerr = len(Lx_roots)
-    # error locations are given by the exponent of inverse of L(x) roots
+    # error locations are given by the exponent of inverse of Lambda(x) roots
     # error_locs = [(order-i)%order for i in Lx_roots]
-    error_locs = clone(array_int_template, lenerr, False)
+    error_locs = clone(array_int_template, lenerr, True)
     for i in range(lenerr):
         error_locs.data.as_ints[i] = (n - Lx_roots.data.as_ints[i]) % n
     
@@ -338,24 +340,25 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
 # n-k parity bits.
 # Input and output are in binary strings (0s and 1s).
 
-cpdef array[char] RS_encode(char[::1] m, int n, int k, 
+cpdef array[char] RS_encode(char[::1] msg, int n, int k, int bits_per_symbol,
               int[:,::1] multiplication_table, list int2bin_list, int[::1] gx, 
               systematic=True):
     cdef:
         array[int] mx, tx, rx
-        int s, double_t, lenm, i, j, c
+        int double_t, lenmsg, i, j, counter, real_n, real_k
         array[char] codeword, tarray
     
-    
-    # symbol size, bits per symbol
-    s = math.ceil(math.log2(n))
     # n-k = 2t
     double_t = n-k
-    lenm = len(m)
+    # length of message, in bits
+    lenmsg = len(msg)
     
-    # split codeword into equal length s then
+    real_n = (1 << bits_per_symbol)-1
+    real_k = real_n - (n-k)
+    
+    # split codeword into equal length bits_per_symbol then
     # turn it into polynomial form
-    mx = aux.binarray2intarray(m, k, s)
+    mx = aux.binarray2intarray(msg, real_k, bits_per_symbol)
     
     # r(x) = (m(x) * x^{2t}) modulo g(x)
     # c(x) = m(x) * x^{2t} - r(x)
@@ -368,17 +371,20 @@ cpdef array[char] RS_encode(char[::1] m, int n, int k,
     rx = GF.GF2_remainder_monic_divisor(tx, gx,
                                      multiplication_table, returnlen=double_t)
     
-    codeword = clone(array_char_template, s*n, True)
+    codeword = clone(array_char_template, bits_per_symbol*n, True)
     
-    c = 0
+    counter = 0
+    # copy parity bits to buffer
+    # length of parity bits: bits per symbol * 2t
     for i in range(double_t):
         tarray = int2bin_list[rx.data.as_ints[i]]
-        for j in range(s):
-            codeword.data.as_schars[c] = tarray.data.as_schars[j]
-            c += 1
+        for j in range(bits_per_symbol):
+            codeword.data.as_schars[counter] = tarray.data.as_schars[j]
+            counter += 1
     
-    for i in range(lenm):
-        codeword.data.as_chars[i+c] = m[i]
+    # append original message to the end
+    for i in range(lenmsg):
+        codeword.data.as_chars[i+counter] = msg[i]
     
     return codeword
     
@@ -390,7 +396,7 @@ cpdef array[char] RS_encode(char[::1] m, int n, int k,
 # decoded message of length k.
 # Input and output are in binary strings (0s and 1s).
 
-cpdef array[char] RS_decode(char[::1] recv, int n, int k, 
+cpdef array[char] RS_decode(char[::1] recv, int n, int k, int bits_per_symbol,
               int[::1] exptable, int[::1] logtable, 
               int[:,::1] multiplication_table, list int2bin_list, int[::1] gx, 
               systematic=True):
@@ -398,42 +404,43 @@ cpdef array[char] RS_decode(char[::1] recv, int n, int k,
     cdef:
         array[int] recvx, remainder, Syn, Lx, cx, ex, buffer_2t
         array[char] decoded, tarray
-        int i, j, c, double_t, s, sumrem, lenrecv
+        int real_n, real_k, i, j, counter, double_t, s, sumremainder, lenrecv
     
     double_t = n-k
-    # s represents the number of bits per symbol.
-    s = math.ceil(math.log2(n))
+    real_n = (1 << bits_per_symbol) - 1
+    real_k = real_n - (n-k)
     
-    recvx = aux.binarray2intarray(recv, n, s)
+    recvx = aux.binarray2intarray(recv, real_n, bits_per_symbol)
     lenrecv = len(recvx)
     
     remainder = GF.GF2_remainder_monic_divisor(recvx, gx,
                                             multiplication_table)
-    sumrem = 0
+    sumremainder = 0
     for i in range(double_t):
-        sumrem += remainder.data.as_ints[i]
+        sumremainder += remainder.data.as_ints[i]
     
-    if sumrem:
-        cx = clone(array_int_template, lenrecv, False)
-        decoded = clone(array_char_template, s*k, False)
+    # if sumremainder != 0, there are errors
+    if sumremainder:
+        cx = clone(array_int_template, lenrecv, True)
+        decoded = clone(array_char_template, bits_per_symbol*k, True)
         
         # Calculate RS syndromes by evaluating the codeword polynomial.
         # Generator poly assumed to be (x-alpha)(x-alpha^2)*...*(x-alpha^(n-k))
         # so we evaluate rx starting from alpha^1 for S_1 to alpha^(n-k)
         # for the last entry.
-        buffer_2t = clone(array_int_template, double_t, False)
+        buffer_2t = clone(array_int_template, double_t, True)
         for i in range(double_t):
             buffer_2t.data.as_ints[i] = i+1
-        Syn = GF.GF2_poly_eval(recvx, n, k, buffer_2t,
+        Syn = GF.GF2_poly_eval(recvx, real_n, buffer_2t,
                             exptable, multiplication_table)
         
         # find error locator polynomial with Berlekamp-Massey
         # then use Forney to calculate the error polynomial
-        Lx = Berlekamp_Massey(Syn, n, k, 
+        Lx = Berlekamp_Massey(Syn, real_n, real_k, 
                               exptable, logtable, multiplication_table)
-        ex = Forney(Lx, Syn, n, k,
+        ex = Forney(Lx, Syn, real_n, real_k,
                     exptable, logtable, multiplication_table)
-
+        
         # c(x) + e(x) = r(x)
         # c(x) = r(x) - e(x) ---> r(x) ^ e(x)
         # length not checked for speed, ensure they are same before this point
@@ -444,19 +451,22 @@ cpdef array[char] RS_decode(char[::1] recv, int n, int k,
         # we only need k symbols out of n, so we cut the first n-k symbols
         # if using systematic encoding
         
-        c = 0
+        counter = 0
         for i in range(double_t, n):
             tarray = int2bin_list[cx.data.as_ints[i]]
-            for j in range(s):
-                decoded.data.as_schars[c] = tarray.data.as_schars[j]
-                c += 1
+            for j in range(bits_per_symbol):
+                decoded.data.as_schars[counter] = tarray.data.as_schars[j]
+                counter += 1
         
         return decoded
+    
+    # if there are no errors
     else:
-        decoded = clone(array_char_template, s*k, False)
-        for i in range(s*k):
-            c = double_t * s
-            decoded.data.as_chars[i] = recv[c + i]
+        decoded = clone(array_char_template, bits_per_symbol*k, True)
+        # skip the parity bits
+        counter = double_t * bits_per_symbol
+        for i in range(bits_per_symbol*k):
+            decoded.data.as_chars[i] = recv[counter + i]
         return decoded
     
     # TODO non-systematic decoding

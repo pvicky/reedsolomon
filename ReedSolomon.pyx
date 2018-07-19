@@ -340,9 +340,12 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
 # n-k parity bits.
 # Input and output are in binary strings (0s and 1s).
 
-cpdef array[char] RS_encode(char[::1] msg, int n, int k, int bits_per_symbol,
-              int[:,::1] multiplication_table, list int2bin_list, int[::1] gx, 
-              systematic=True):
+cpdef array[char] RS_encode(char[::1] msg, 
+                            int n, int k, int bits_per_symbol,
+                            int[:,::1] multiplication_table, list int2bin_list,
+                            int[::1] gx, 
+                            systematic=True):
+    
     cdef:
         array[int] mx, tx, rx
         int double_t, lenmsg, i, j, counter, real_n, real_k
@@ -396,15 +399,19 @@ cpdef array[char] RS_encode(char[::1] msg, int n, int k, int bits_per_symbol,
 # decoded message of length k.
 # Input and output are in binary strings (0s and 1s).
 
-cpdef array[char] RS_decode(char[::1] recv, int n, int k, int bits_per_symbol,
-              int[::1] exptable, int[::1] logtable, 
-              int[:,::1] multiplication_table, list int2bin_list, int[::1] gx, 
-              systematic=True):
+
+cpdef array[char] RS_decode(char[::1] recv, 
+                            int n, int k, int bits_per_symbol,
+                            int[::1] exptable, int[::1] logtable, 
+                            int[:,::1] multiplication_table, list int2bin_list,
+                            int[::1] gx, 
+                            systematic=True, trim_parity=True):
     
     cdef:
         array[int] recvx, remainder, Syn, Lx, cx, ex, buffer_2t
         array[char] decoded, tarray
-        int real_n, real_k, i, j, counter, double_t, s, sumremainder, lenrecv
+        int real_n, real_k, i, j, counter, double_t, sumremainder, lenrecv, \
+            copy_start, copy_len
     
     double_t = n-k
     real_n = (1 << bits_per_symbol) - 1
@@ -422,7 +429,6 @@ cpdef array[char] RS_decode(char[::1] recv, int n, int k, int bits_per_symbol,
     # if sumremainder != 0, there are errors
     if sumremainder:
         cx = clone(array_int_template, lenrecv, True)
-        decoded = clone(array_char_template, bits_per_symbol*k, True)
         
         # Calculate RS syndromes by evaluating the codeword polynomial.
         # Generator poly assumed to be (x-alpha)(x-alpha^2)*...*(x-alpha^(n-k))
@@ -447,26 +453,49 @@ cpdef array[char] RS_decode(char[::1] recv, int n, int k, int bits_per_symbol,
         for i in range(lenrecv):
             cx.data.as_ints[i] = (recvx.data.as_ints[i] ^
                                         ex.data.as_ints[i])
-
+        
         # we only need k symbols out of n, so we cut the first n-k symbols
         # if using systematic encoding
+        # copy_len indicates how many symbols to be copied, not bits
+        if trim_parity:
+            decoded = clone(array_char_template, bits_per_symbol*k, True)
+            copy_start = double_t
+            copy_len = k
+        
+        # just correct the codeword, but keep parity bits intact
+        else:
+            decoded = clone(array_char_template, bits_per_symbol*n, True)
+            copy_start = 0
+            copy_len = n
         
         counter = 0
-        for i in range(double_t, n):
+        for i in range(copy_start, copy_start+copy_len):
             tarray = int2bin_list[cx.data.as_ints[i]]
             for j in range(bits_per_symbol):
                 decoded.data.as_schars[counter] = tarray.data.as_schars[j]
                 counter += 1
         
         return decoded
+            
     
     # if there are no errors
     else:
-        decoded = clone(array_char_template, bits_per_symbol*k, True)
         # skip the parity bits
-        counter = double_t * bits_per_symbol
-        for i in range(bits_per_symbol*k):
-            decoded.data.as_chars[i] = recv[counter + i]
+        if trim_parity:
+            decoded = clone(array_char_template, bits_per_symbol*k, True)
+            copy_start = double_t
+            copy_len = k
+        # copy from the beginning
+        else:
+            decoded = clone(array_char_template, bits_per_symbol*n, True)
+            copy_start = 0
+            copy_len = n
+            
+        counter = copy_start * bits_per_symbol
+        for i in range(0, copy_len * bits_per_symbol):
+            decoded.data.as_chars[i] = recv[counter]
+            counter += 1
+        
         return decoded
     
     # TODO non-systematic decoding

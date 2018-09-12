@@ -344,10 +344,10 @@ cpdef array[char] RS_encode(char[::1] msg,
                             int n, int k, int bits_per_symbol,
                             int[:,::1] multiplication_table, list int2bin_list,
                             int[::1] gx, 
-                            systematic=True):
+                            systematic=True, ascending_poly=True):
     
     cdef:
-        array[int] mx, tx, rx
+        array[int] mx, tempx, rx
         int double_t, lenmsg, i, j, counter, real_n, real_k
         array[char] codeword, tarray
     
@@ -368,26 +368,49 @@ cpdef array[char] RS_encode(char[::1] msg,
     
     # We multiply message polynomial by x^(2t), then divide
     # by generator polynomial, take the remainder and concatenate.
-    tx = clone(array_int_template, n, True)
-    for i in range(k):
-        tx.data.as_ints[double_t + i] = mx.data.as_ints[i]
-    rx = GF.GF2_remainder_monic_divisor(tx, gx,
+    # During calculations, the array of tempx must contain polynomial
+    # coefficients in ascending order, so put mx in reverse when
+    # ascending_poly = False.
+    tempx = clone(array_int_template, n, True)
+    if ascending_poly:
+        for i in range(k):
+            tempx.data.as_ints[double_t + i] = mx.data.as_ints[i]
+    else:
+        for i in range(k):
+            tempx.data.as_ints[double_t + k - i - 1] = mx.data.as_ints[i]
+            
+    rx = GF.GF2_remainder_monic_divisor(tempx, gx,
                                      multiplication_table, returnlen=double_t)
     
     codeword = clone(array_char_template, bits_per_symbol*n, True)
     
     counter = 0
-    # copy parity bits to buffer
-    # length of parity bits: bits per symbol * 2t
-    for i in range(double_t):
-        tarray = int2bin_list[rx.data.as_ints[i]]
-        for j in range(bits_per_symbol):
-            codeword.data.as_schars[counter] = tarray.data.as_schars[j]
-            counter += 1
+    if ascending_poly:
+        # copy parity bits to buffer
+        # length of parity bits: bits per symbol * 2t
+        for i in range(double_t):
+            tarray = int2bin_list[rx.data.as_ints[i]]
+            for j in range(bits_per_symbol):
+                codeword.data.as_schars[counter] = tarray.data.as_schars[j]
+                counter += 1
+        
+        # append original message to the end
+        for i in range(lenmsg):
+            codeword.data.as_schars[i+counter] = msg[i]
     
-    # append original message to the end
-    for i in range(lenmsg):
-        codeword.data.as_chars[i+counter] = msg[i]
+    else:
+        # original message at the start
+        for i in range(lenmsg):
+            codeword.data.as_schars[i] = msg[i]
+        
+        # parity bits at the end
+        counter = lenmsg
+        for i in range(double_t):
+            tarray = int2bin_list[rx.data.as_ints[double_t - i - 1]]
+            for j in range(bits_per_symbol):
+                codeword.data.as_schars[counter] = tarray.data.as_schars[j]
+                counter += 1
+        
     
     return codeword
     
@@ -405,10 +428,11 @@ cpdef array[char] RS_decode(char[::1] recv,
                             int[::1] exptable, int[::1] logtable, 
                             int[:,::1] multiplication_table, list int2bin_list,
                             int[::1] gx, 
-                            systematic=True, trim_parity=True):
+                            systematic=True, trim_parity=True,
+                            ascending_poly=True):
     
     cdef:
-        array[int] recvx, remainder, Syn, Lx, cx, ex, buffer_2t
+        array[int] recvx, tempx, remainder, Syn, Lx, cx, ex, buffer_2t
         array[char] decoded, tarray
         int real_n, real_k, i, j, counter, double_t, sumremainder, lenrecv, \
             copy_start, copy_len
@@ -417,10 +441,39 @@ cpdef array[char] RS_decode(char[::1] recv,
     real_n = (1 << bits_per_symbol) - 1
     real_k = real_n - (n-k)
     
+    
+    # We only need k symbols out of n, so we cut the first n-k symbols
+    # with systematic encoding and copy start from the end of parity bits 
+    # (no matter what value ascending_poly takes, because first element always
+    # represent lowest coefficient in internal calculations).
+    # copy_len indicates how many symbols to be copied, not bits
+    if trim_parity:
+        decoded = clone(array_char_template, bits_per_symbol*k, True)
+        copy_start = double_t
+        copy_len = k
+    # just correct the codeword, but keep parity bits intact
+    else:
+        decoded = clone(array_char_template, bits_per_symbol*n, True)
+        copy_start = 0
+        copy_len = n
+    
+    
     recvx = aux.binarray2intarray(recv, real_n, bits_per_symbol)
     lenrecv = len(recvx)
     
-    remainder = GF.GF2_remainder_monic_divisor(recvx, gx,
+    # During calculations, the array of tempx must contain polynomial
+    # coefficients in ascending order, so put recvx in reverse when
+    # ascending_poly = False.
+    tempx = clone(array_int_template, lenrecv, True)
+    if ascending_poly:
+        for i in range(lenrecv):
+            tempx.data.as_ints[i] = recvx.data.as_ints[i]
+    else:
+        for i in range(lenrecv):
+            tempx.data.as_ints[i] = recvx.data.as_ints[lenrecv - i - 1]
+        
+    
+    remainder = GF.GF2_remainder_monic_divisor(tempx, gx,
                                             multiplication_table)
     sumremainder = 0
     for i in range(double_t):
@@ -437,7 +490,7 @@ cpdef array[char] RS_decode(char[::1] recv,
         buffer_2t = clone(array_int_template, double_t, True)
         for i in range(double_t):
             buffer_2t.data.as_ints[i] = i+1
-        Syn = GF.GF2_poly_eval(recvx, real_n, buffer_2t,
+        Syn = GF.GF2_poly_eval(tempx, real_n, buffer_2t,
                             exptable, multiplication_table)
         
         # find error locator polynomial with Berlekamp-Massey
@@ -451,51 +504,38 @@ cpdef array[char] RS_decode(char[::1] recv,
         # c(x) = r(x) - e(x) ---> r(x) ^ e(x)
         # length not checked for speed, ensure they are same before this point
         for i in range(lenrecv):
-            cx.data.as_ints[i] = (recvx.data.as_ints[i] ^
+            cx.data.as_ints[i] = (tempx.data.as_ints[i] ^
                                         ex.data.as_ints[i])
         
-        # we only need k symbols out of n, so we cut the first n-k symbols
-        # if using systematic encoding
-        # copy_len indicates how many symbols to be copied, not bits
-        if trim_parity:
-            decoded = clone(array_char_template, bits_per_symbol*k, True)
-            copy_start = double_t
-            copy_len = k
-        
-        # just correct the codeword, but keep parity bits intact
-        else:
-            decoded = clone(array_char_template, bits_per_symbol*n, True)
-            copy_start = 0
-            copy_len = n
-        
+        # Copying of cx to result array starts here.
         counter = 0
-        for i in range(copy_start, copy_start+copy_len):
-            tarray = int2bin_list[cx.data.as_ints[i]]
-            for j in range(bits_per_symbol):
-                decoded.data.as_schars[counter] = tarray.data.as_schars[j]
-                counter += 1
+        if ascending_poly:
+            for i in range(copy_start, copy_start+copy_len):
+                tarray = int2bin_list[cx.data.as_ints[i]]
+                for j in range(bits_per_symbol):
+                    decoded.data.as_schars[counter] = tarray.data.as_schars[j]
+                    counter += 1
+        else:
+            for i in range(copy_start+copy_len - 1, copy_start - 1, -1):
+                tarray = int2bin_list[cx.data.as_ints[i]]
+                for j in range(bits_per_symbol):
+                    decoded.data.as_schars[counter] = tarray.data.as_schars[j]
+                    counter += 1
         
         return decoded
             
     
     # if there are no errors
     else:
-        # skip the parity bits
-        if trim_parity:
-            decoded = clone(array_char_template, bits_per_symbol*k, True)
-            copy_start = double_t
-            copy_len = k
-        # copy from the beginning
+        if ascending_poly:
+            counter = copy_start * bits_per_symbol
+            for i in range(0, copy_len * bits_per_symbol):
+                decoded.data.as_schars[i] = recv[counter]
+                counter += 1
         else:
-            decoded = clone(array_char_template, bits_per_symbol*n, True)
-            copy_start = 0
-            copy_len = n
+            for i in range(0, copy_len * bits_per_symbol):
+                decoded.data.as_schars[i] = recv[i]
             
-        counter = copy_start * bits_per_symbol
-        for i in range(0, copy_len * bits_per_symbol):
-            decoded.data.as_chars[i] = recv[counter]
-            counter += 1
-        
         return decoded
     
     # TODO non-systematic decoding

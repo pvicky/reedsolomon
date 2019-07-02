@@ -77,10 +77,10 @@ cpdef array[int] GF2_poly_product(int[::1] poly_a, int[::1] poly_b,
     return result
 
 
-# The input arguments dividend and divisor are polynomials where
-# each element is a symbol in the form of an integer. A symbol is represents
-# a polynomial that is some power of alpha, encoded as binary number before
-# conversion to integer.
+# Calculate remainder from given dividend and divisor polynomials over GF(2^m).
+# In a polynomial, each coefficient of x is represented by an integer
+# from exponential table, which itself is some power of an element alpha in
+# the Galois field.
 # While the input polynomials dividend and divisor start with the lowest
 # exponent as their first element (i.e. x^0 + x^1 + x^2 + ...), in symbols
 # the lowest exponent is on the least significant (last) bit.
@@ -90,13 +90,14 @@ cpdef array[int] GF2_div_remainder(int[::1] dividend, int[::1] divisor, int n,
     
     cdef:
         array[int] remainder, temparray
-        int lendividend, lendiv, i, j, divisor_lead_x_exponent, quot, expnt, t
+        int lendividend, lendivisor, i, j, \
+            divisor_lead_x_exponent, quotient, expnt, t
     
     lendividend = len(dividend)
-    lendiv = len(divisor)
+    lendivisor = len(divisor)
     
     # degree of dividend is already smaller than divisor
-    if lendividend < lendiv:
+    if lendividend < lendivisor:
         if returnlen:
             remainder = clone(array_int_template, returnlen, True)
             if returnlen > lendividend:
@@ -122,24 +123,32 @@ cpdef array[int] GF2_div_remainder(int[::1] dividend, int[::1] divisor, int n,
     # trim leading zeros before first iteration
     while i >= 0 and remainder.data.as_ints[i] == 0:
         i -= 1
-    divisor_lead_x_exponent = logtable[divisor[lendiv-1]]
+    divisor_lead_x_exponent = logtable[divisor[lendivisor-1]]
     
-    while i+1 >= lendiv:
+    # while the degree of divisor is smaller, keep dividing
+    while i+1 >= lendivisor:
         
-        # find how much the divisor should be multiplied by, in terms of
-        # power of alpha
-        quot = (logtable[remainder.data.as_ints[i]] - 
+        # find how much the divisor should be multiplied by to get rid of
+        # leading coefficient in remainder
+        # quotient is an integer representing the exponent part
+        # of a power of alpha
+        quotient = (logtable[remainder.data.as_ints[i]] - 
                 divisor_lead_x_exponent) % n
         
+        # we multiply the divisor by quotient, and subtract it from remainder
         # the result will reduce the degree of remainder by at least one
-        for j in range(lendiv):
+        for j in range(lendivisor):
             
-            t = divisor[lendiv-1-j]
+            t = divisor[lendivisor-1-j]
+            # t here is a coefficient of divisor
+            # subtraction is done by XORing the coefficient in remainder with
+            # exp(log(t) + quotient)
+            
             # check to see if the coefficient is 0 because log(0) is -infinity
-            # exp(-infinity) is equal to 0, and XOR with 0 does not change the
-            # result, so we can skip
-            if t:
-                expnt = (logtable[t] + quot) % n
+            # exp(-infinity) is equal to 0
+            # since XOR with 0 does nothing, so we can skip
+            if t != 0:
+                expnt = (logtable[t] + quotient) % n
                 remainder.data.as_ints[i-j] = (remainder.data.as_ints[i-j] ^
                                                exptable[expnt])
         
@@ -164,20 +173,21 @@ cpdef array[int] GF2_div_remainder(int[::1] dividend, int[::1] divisor, int n,
         return remainder
 
 
-# Functionally a faster version of GF2_div_remainder, but limited to only
-# monic polynomial as divisor.
+# Calculate remainder from given dividend and divisor polynomials over GF(2^m).
+# Functionally similar of GF2_div_remainder, but limited to only monic
+# polynomial (1 as leading coefficient) as divisor.
 cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
                                              int[::1] divisor, 
                                              int[:,::1] multiplication_table, 
                                              int returnlen=0):
     
     cdef:
-        int lendiv = len(divisor), lendividend = len(dividend), \
+        int lendivisor = len(divisor), lendividend = len(dividend), \
             lead_remainder, i, j
         array[int] remainder, temparray
     
     # degree of dividend is already smaller than divisor
-    if lendividend < lendiv:
+    if lendividend < lendivisor:
         if returnlen:
             remainder = clone(array_int_template, returnlen, True)
             if returnlen > lendividend:
@@ -204,16 +214,18 @@ cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
     while i >= 0 and remainder.data.as_ints[i] == 0:
         i -= 1
     
-    while i+1 >= lendiv:
+    while i+1 >= lendivisor:
+        # monic polynomial has 1 as leading coefficient, so we multiply
+        # divisor by the leading coefficient of remainder
         lead_remainder = remainder.data.as_ints[i]
         
         # XOR with the remainder
         # the result will reduce the degree of remainder by at least one
         # i.e. lead_remainder will be 0 after the loop, and may be followed
         # by some zeros
-        for j in range(lendiv):
+        for j in range(lendivisor):
             remainder.data.as_ints[i-j] = (remainder.data.as_ints[i-j] ^
-                    multiplication_table[divisor[lendiv-1-j], lead_remainder])
+                    multiplication_table[divisor[lendivisor-1-j], lead_remainder])
         
         while i >= 0 and remainder.data.as_ints[i] == 0:
             i -= 1
@@ -347,18 +359,18 @@ cdef list polynomial_product(list poly1, list poly2):
 # calculate product of two polynomials by convolution
 cpdef list GF_polynomial_product(list a, list b, int modulo=0):
     cdef:
-        int degree_a, degree_b, support, k, i, maxlen
+        int degree_a, degree_b, support_end, k, i, maxlen
         list result, result_k, t, tlist, alphas_list
     
     degree_a = len(a)-1
     degree_b = len(b)-1
     
     # degree of result is degree of a + degree of b
-    support = degree_a+degree_b
+    support_end = degree_a+degree_b
     result = []
     
     # k=0 is the highest degree
-    for k in range(support+1):
+    for k in range(support_end+1):
         
         maxlen = 0
         tlist = []
@@ -380,8 +392,6 @@ cpdef list GF_polynomial_product(list a, list b, int modulo=0):
         result.append(result_k)
     return result
 
-
-###############################################################################
 
 # Find the remainder of polynomial division, not restricted to GF(2^n) and
 # does not require GF tables.

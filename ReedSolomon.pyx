@@ -34,16 +34,17 @@ cdef list RS_generator_polynomial(int lower, int upper):
         list t, poly, gx, gx_list = []
         int i
     
-    # [[-1,0], [1]] is interpreted as 
-    # (-1 * \alpha^1 + 0 * \alpha^0) * (x^0) +  1 * (x^1)
-    # or simplified, (x - \alpha)
+    # [[0,-1], [1]] is interpreted as 
+    # {(0 * a^0) + (-1 * a^1)} * (x^0) +  {1 * a^0} * (x^1)
+    # or simplified written as (x - a)
     for i in range(lower, upper+1):
         t = [[0]*i+[-1], [1]]
         gx_list.append(t)
-        
+    
     gx = gx_list[0]
     for poly in gx_list[1:]:
-        gx = GF.GF_polynomial_product(gx, poly, modulo=2)
+        gx = GF.nested_polynomial_product(gx, poly, modulo=2)
+    
     return gx
 
 

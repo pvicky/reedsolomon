@@ -334,62 +334,67 @@ cpdef int GF2_poly_add(int[::1] poly_a, int len_a,
 
 ###############################################################################
 
-cdef list polynomial_product(list poly1, list poly2):
+
+# Calculate the product of two polynomials.
+# The input poly1 and poly2 are lists where coefficients are ordered from
+# lowest exponent to highest, i.e. first element is a^0, second is a^1, etc.
+# Result will be stored in array[int].
+cpdef array[int] polynomial_product(list poly1, list poly2):
     cdef:
-        int maxlen = 0, i
-        list result_list, result, poly, tpoly, t
-        
-    result_list = []
+        int maxlen = 0, lenp1 = len(poly1), lenp2 = len(poly2), i, j, k
+        array[int] result
     
-    for i in range(len(poly2)):
-        t = [0]*(len(poly2)-i-1) + [poly2[i]*x for x in poly1]
-        result_list.append(t)
-        if len(t) > maxlen:
-            maxlen = len(t)
+    maxlen = lenp1+lenp2-1
+    result = clone(array_int_template, maxlen, True)
     
-    result = [0]*maxlen
-    
-    for poly in result_list:
-        tpoly = [0]*(maxlen-len(poly)) + poly
-        result = [result[i] + tpoly[i] for i in range(maxlen)]
+    for i in range(lenp2):
+        k = i+lenp1
+        for j in range(lenp1):
+            result.data.as_ints[i+j] += poly2[i] * poly1[j]
     
     return result
 
 
-# calculate product of two polynomials by convolution
-cpdef list GF_polynomial_product(list a, list b, int modulo=0):
+# Calculate product of two polynomials a and b, where each element of a and b
+# is a polynomial by itself (so they are in list of lists).
+# The resulting polynomial is ordered from lowest exponent to highest,
+# stored as nested list with depth = 2.
+cpdef list nested_polynomial_product(list a, list b, int modulo=0):
     cdef:
-        int degree_a, degree_b, support_end, k, i, maxlen
-        list result, result_k, t, tlist, alphas_list
+        int len_a, len_b, k, i, j, maxlen
+        list result, result_k, coef_k_list
+        array[int] coef_k
     
-    degree_a = len(a)-1
-    degree_b = len(b)-1
+    len_a = len(a)
+    len_b = len(b)
     
     # degree of result is degree of a + degree of b
-    support_end = degree_a+degree_b
-    result = []
+    result = [None] * (len_a+len_b-1)
     
-    # k=0 is the highest degree
-    for k in range(support_end+1):
+    # start from the lowest exponent (x^0)
+    for k in range(len_a+len_b-1):
         
         maxlen = 0
-        tlist = []
+        coef_k_list = []
         for i in range(k+1):
             if i < len(a) and k-i < len(b):
-                alphas_list = polynomial_product(a[i], b[k-i])
-                tlist.append(alphas_list)
-                if len(alphas_list) > maxlen:
-                    maxlen = len(alphas_list)
-                
+                # backwards as in convolution
+                coef_k = polynomial_product(a[i], b[k-i])
+                coef_k_list.append(coef_k)
+                if len(coef_k) > maxlen:
+                    maxlen = len(coef_k)
+        
         result_k = [0]*maxlen
-        for t in tlist:
-            t = t + [0]*(maxlen-len(t))
-            result_k = [result_k[j] + t[j] for j in range(maxlen)]
+        for coef_k in coef_k_list:
+            j = len(coef_k)
+            for i in range(j):
+                result_k[i] = (result_k[i] + coef_k.data.as_ints[i])
             
         if modulo !=0:
-            result_k = [i%modulo for i in result_k]
+            for i in range(maxlen):
+                result_k[i] = result_k[i] % modulo
         
-        result.append(result_k)
+        result[k] = result_k
     return result
 
 

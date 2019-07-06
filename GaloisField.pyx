@@ -269,13 +269,20 @@ cpdef array[int] GF2_poly_eval(int[::1] px, int n, int[::1] alphaexps,
         # \alpha^{expnt} is what x is substituted with
         expnt = alphaexps[i]
         t = 0
-        for j in range(degree+1):
+        
         # each iteration counts result_i + \alpha^{log(px[j])} * x^{degree-j}
+        # t is a temp variable and we increment it by expnt at each iteration
+        # to indicate the exponent of a multiplied by exponent of x
+        # suppose we want to evaluate 1 + x + x^2 + x^3 for a^5
+        # which could be written as 1 + (a^5) + (a^5)^2 + (a^5)^3
+        # so for first iteration, t=0; second t=5; third t=10; fourth t=15
+        for j in range(degree+1):
             
             t2 = t%n
             # \alpha^{expnt * power of x}
             t2 = exptable[t2]
             
+            # add product of poly coefficient at position j with a^(expnt*j)
             result_i ^= (multiplication_table[px[j], t2])
             
             # it is faster to keep incrementing t and use another variable
@@ -326,6 +333,8 @@ cpdef int GF2_poly_add(int[::1] poly_a, int len_a,
         lendiff = len_b - len_a
         for i in range(len_a):
             poly_a[i] = poly_a[i] ^ poly_b[i]
+        # in case degree of a is less than b 
+        # we still need to have enough space on a
         for i in range(lendiff):
             poly_a[len_a + i] = poly_b[len_a + i]
 
@@ -446,7 +455,7 @@ cpdef list GF_polynomial_div_remainder(list dividend, list divisor,
     # or return the full array
     else:
         return remainder
-
+    
 
 ###############################################################################
 
@@ -480,3 +489,47 @@ cpdef dict GF2_minimal_polynomial(int n, int[::1] exptable,
     return min_poly
 
 
+def Euler_totient(q):
+    if q<=0:
+        return -1
+    
+    if q==1:
+        return 1
+    
+    primes = [2]
+    i = 3
+    
+    while i < q:
+        i_prime = 1
+        for j in primes:
+            if i%j == 0:
+                i_prime = 0
+                break
+        if i_prime == 1:
+            primes.append(i)
+        i += 1
+    
+    q_prime = 1
+    for i in primes:
+        if q%i==0:
+            q_prime = 0
+            break
+    
+    # if q is prime return q-1
+    if q_prime == 1:
+        return q-1
+    # break down into factors
+    else:
+        factors = []
+        for i in primes:
+            j = 0
+            while q%i == 0:
+                q = q/i
+                j += 1
+            if j>0:
+                factors.append((i, j))
+        
+        acc = 1
+        for prime,exponent in factors:
+            acc *= (prime-1)*prime**(exponent-1)
+        return acc

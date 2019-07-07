@@ -29,7 +29,7 @@ tables required for the encoding and decoding.
 # representing a polynomial of alpha.
 # To simplify this polynomial, we need exptable which is in another function.
 # lower = l, upper = l+2t-1
-cdef list RS_generator_polynomial(int lower, int upper):
+cdef list RS_generator_polynomial(int lower, int upper, int q):
     cdef:
         list t, poly, gx, gx_list = []
         int i
@@ -43,7 +43,7 @@ cdef list RS_generator_polynomial(int lower, int upper):
     
     gx = gx_list[0]
     for poly in gx_list[1:]:
-        gx = GF.nested_polynomial_product(gx, poly, modulo=2)
+        gx = GF.nested_polynomial_product(gx, poly, modulo=q)
     
     return gx
 
@@ -60,13 +60,13 @@ cdef list RS_generator_polynomial(int lower, int upper):
 # keys in exptable.
 # Here, the number of bits per symbol is determined by the length of the
 # primitive polynomial.
-cdef tuple RS_generate_tables(list primitive_poly):
+cdef tuple RS_bin_tables(list primitive_poly):
     
     cdef:
         array[int] exptable, logtable, rem_array
         list int2bin_list
-        int polydegree, order, n, bits_per_symbol, exponent, remainder_int, i
-        list x_coefs, remainder, t, logkeys
+        int polydegree, order, bits_per_symbol, exponent, remainder_int, i, j
+        list x_coefs, remainder
         np.ndarray[int, ndim=2] multiplication_table
          
     polydegree = len(primitive_poly)-1
@@ -86,7 +86,7 @@ cdef tuple RS_generate_tables(list primitive_poly):
     logtable.data.as_ints[1] = 0
     
     
-    # coefficients of x, starting from x^degree to x^0
+    # coefficients of x, starting from x^0 as first element
     # we initialize it to 1
     x_coefs = [1]
     
@@ -128,7 +128,7 @@ cdef tuple RS_generate_tables(list primitive_poly):
 # Calls the functions to create the generator polynomial and relevant tables.
 # Also converts the calculated generator polynomial into simpler form
 # by use of the lookup table.
-cpdef tuple RS_generator(int n, int k, list primitive_poly):
+cpdef tuple RS_bin_generator(int n, int k, list primitive_poly):
 
     cdef:
         tuple gf_tables
@@ -139,10 +139,10 @@ cpdef tuple RS_generator(int n, int k, list primitive_poly):
         array[int] gpoly
         int[::1] exptable, logtable
 
-    gf_tables = RS_generate_tables(primitive_poly)
+    gf_tables = RS_bin_tables(primitive_poly)
     exptable, logtable, multiplication_table, int2bin_list = gf_tables
     
-    generator_poly_alpha = RS_generator_polynomial(1,n-k)
+    generator_poly_alpha = RS_generator_polynomial(1,n-k, 2)
     
     polylen = len(generator_poly_alpha)
     generator_poly_int = [0]*polylen
@@ -341,11 +341,12 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
 # n-k parity bits.
 # Input and output are in binary strings (0s and 1s).
 
-cpdef array[char] RS_encode(char[::1] msg, 
-                            int n, int k, int bits_per_symbol,
-                            int[:,::1] multiplication_table, list int2bin_list,
-                            int[::1] gx, 
-                            systematic=True, ascending_poly=True):
+cpdef array[char] RS_bin_encode(char[::1] msg, 
+                                int n, int k, int bits_per_symbol,
+                                int[:,::1] multiplication_table, 
+                                list int2bin_list,
+                                int[::1] gx, 
+                                systematic=True, ascending_poly=True):
     
     cdef:
         array[int] mx, tempx, rx
@@ -424,19 +425,20 @@ cpdef array[char] RS_encode(char[::1] msg,
 # Input and output are in binary strings (0s and 1s).
 
 
-cpdef array[char] RS_decode(char[::1] recv, 
-                            int n, int k, int bits_per_symbol,
-                            int[::1] exptable, int[::1] logtable, 
-                            int[:,::1] multiplication_table, list int2bin_list,
-                            int[::1] gx, 
-                            systematic=True, trim_parity=True,
-                            ascending_poly=True):
+cpdef array[char] RS_bin_decode(char[::1] recv, 
+                                int n, int k, int bits_per_symbol,
+                                int[::1] exptable, int[::1] logtable, 
+                                int[:,::1] multiplication_table, 
+                                list int2bin_list,
+                                int[::1] gx, 
+                                systematic=True, trim_parity=True,
+                                ascending_poly=True):
     
     cdef:
         array[int] recvx, tempx, remainder, Syn, Lx, cx, ex, buffer_2t
         array[char] decoded, tarray
-        int real_n, real_k, i, j, counter, double_t, sumremainder, lenrecv, \
-            copy_start, copy_len
+        int real_n, real_k, i, j, counter, double_t, sumremainder, \
+            lenrecv, lenrecvx, copy_start, copy_len
     
     double_t = n-k
     real_n = (1 << bits_per_symbol) - 1
@@ -460,12 +462,18 @@ cpdef array[char] RS_decode(char[::1] recv,
     
     
     recvx = aux.binarray2intarray(recv, real_n, bits_per_symbol)
-    lenrecv = len(recvx)
+    # lenrecv is the real received length, that is the number of received bits
+    # in recv divided by the number of bits per symbol
+    # in other words, the number of received symbols
+    # lenrecvx is full length of symbols, contains 2^(bits per symbol) elements
+    # so lenrecvx >= lenrecv
+    lenrecv = len(recv)/bits_per_symbol
+    lenrecvx = len(recvx)
     
     # During calculations, the array of tempx must contain polynomial
     # coefficients in ascending order, so put recvx in reverse when
     # ascending_poly = False.
-    tempx = clone(array_int_template, lenrecv, True)
+    tempx = clone(array_int_template, lenrecvx, True)
     if ascending_poly:
         for i in range(lenrecv):
             tempx.data.as_ints[i] = recvx.data.as_ints[i]
@@ -482,7 +490,7 @@ cpdef array[char] RS_decode(char[::1] recv,
     
     # if sumremainder != 0, there are errors
     if sumremainder:
-        cx = clone(array_int_template, lenrecv, True)
+        cx = clone(array_int_template, lenrecvx, True)
         
         # Calculate RS syndromes by evaluating the codeword polynomial.
         # Generator poly assumed to be (x-alpha)(x-alpha^2)*...*(x-alpha^(n-k))
@@ -504,7 +512,7 @@ cpdef array[char] RS_decode(char[::1] recv,
         # c(x) + e(x) = r(x)
         # c(x) = r(x) - e(x) ---> r(x) ^ e(x)
         # length not checked for speed, ensure they are same before this point
-        for i in range(lenrecv):
+        for i in range(lenrecvx):
             cx.data.as_ints[i] = (tempx.data.as_ints[i] ^
                                         ex.data.as_ints[i])
         
@@ -543,3 +551,62 @@ cpdef array[char] RS_decode(char[::1] recv,
 
 ###############################################################################
 
+
+# q is a prime
+cpdef tuple RS_generate_tables(q):
+    
+    cdef:
+        array[int] exptable, logtable, rem_array
+        list int2bin_list
+        int order, n, exponent, i, j, generator_int, tempint
+        np.ndarray[int, ndim=2] multiplication_table
+    
+    order = q-1
+         
+    exptable = clone(array_int_template, order, True)
+    logtable = clone(array_int_template, order+1, True)
+    multiplication_table = np.zeros((order+1,order+1), dtype=np.int32)
+         
+    # log(0) = -infinity
+    # x^(-infinity) = 0 so we don't put in exptable
+    logtable.data.as_ints[0] = -1
+    
+    # x**0 = 1, log(1) = 0
+    exptable.data.as_ints[0] = 1
+    logtable.data.as_ints[1] = 0
+    
+    
+    generator_int = 0
+    # find a positive integer < q that is valid generator
+    # in total there are phi(q-1), but we settle for the first valid integer
+    for i in range(1,q):
+        tempint = i
+        ctr = 1
+        while tempint != 1:
+            tempint = (tempint*i) % q
+            ctr += 1
+        if ctr == q-1:
+            generator_int = i
+            break
+    
+    # if we can't find a generator, exit
+    if generator_int == 0:
+        return
+    
+    tempint = generator_int
+    
+    exponent = 1
+    while exponent < order:
+        
+        exptable[exponent] = tempint
+        logtable[tempint] = exponent
+        tempint = (tempint*generator_int) % q
+        exponent += 1
+    
+    # first row is all zeros, skip
+    for i in range(1,order+1):
+        for j in range(order+1):
+            multiplication_table[i,j] = GF.GF_product(i, j, order, 
+                                                      exptable,logtable)
+            
+    return exptable, logtable, multiplication_table

@@ -455,6 +455,73 @@ cpdef list GF_polynomial_div_remainder(list dividend, list divisor,
     # or return the full array
     else:
         return remainder
+
+
+# Evaluate result of given polynomial for each exponent in alphaexps.
+# Not restricted to binary.
+cpdef array[int] GF_poly_eval(int[::1] px, int n, int[::1] alphaexps, 
+                         int[::1] exptable, int[:,::1] multiplication_table,
+                         int modulo=0, rootsonly = False):
+    cdef:
+        array[int] results, temp
+        int degree=len(px)-1, reps=len(alphaexps), \
+            i, j, result_i, expnt, numroots = 0, t, t2
+    
+    results = clone(array_int_template, reps, True)
+    
+    for i in range(reps):
+        result_i = 0
+        
+        expnt = alphaexps[i]
+        t = 0
+        for j in range(degree+1):
+            
+            t2 = t%n
+            t2 = exptable[t2]
+            
+            result_i += (multiplication_table[px[j], t2])
+            
+            t += expnt
+        
+        results.data.as_ints[i] = result_i % modulo
+        numroots += result_i==0
+    
+    if rootsonly:
+        temp = clone(array_int_template, numroots, True)
+        j = 0
+        i = 0
+        while j < numroots:
+            if results.data.as_ints[i] == 0:
+                temp.data.as_ints[j] = alphaexps[i]
+                j += 1
+            i += 1
+        return temp
+    else:
+        return results
+
+
+# Addition of two polynomials, store result in poly_a.
+# Not restricted to binary.
+cpdef int GF_poly_add(int[::1] poly_a, int len_a,
+                      int[::1] poly_b, int len_b, int modulo=0):
+    cdef:
+        int i, lendiff
+    
+    if len_a > len_b:
+        lendiff = len_a - len_b
+        for i in range(len_b):
+            poly_a[i] = (poly_a[i] + poly_b[i]) % modulo
+        
+        return len_a
+
+    else:
+        lendiff = len_b - len_a
+        for i in range(len_a):
+            poly_a[i] = (poly_a[i] + poly_b[i]) % modulo
+        for i in range(lendiff):
+            poly_a[len_a + i] = poly_b[len_a + i]
+
+        return len_b
     
 
 ###############################################################################

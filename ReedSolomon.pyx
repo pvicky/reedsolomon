@@ -63,16 +63,21 @@ cdef list RS_generator_polynomial(int lower, int upper, int q):
 cdef tuple RS_bin_tables(list primitive_poly):
     
     cdef:
-        array[int] exptable, logtable, rem_array
+        array[int] exptable, logtable, x_coefs, primpoly_ar, \
+                   remainder_descending, remainder
         list int2bin_list
         int polydegree, order, bits_per_symbol, exponent, remainder_int, i, j
-        list x_coefs, remainder
         np.ndarray[int, ndim=2] multiplication_table
          
     polydegree = len(primitive_poly)-1
     bits_per_symbol = polydegree
     order = (1 << polydegree) - 1
-         
+    
+    # move to array because division does not accept list
+    primpoly_ar = clone(array_int_template, polydegree+1, True)
+    for i in range(polydegree+1):
+        primpoly_ar.data.as_ints[i] = primitive_poly[i]
+    
     exptable = clone(array_int_template, order, True)
     logtable = clone(array_int_template, order+1, True)
     multiplication_table = np.zeros((order+1,order+1), dtype=np.int32)
@@ -88,7 +93,8 @@ cdef tuple RS_bin_tables(list primitive_poly):
     
     # coefficients of x, starting from x^0 as first element
     # we initialize it to 1
-    x_coefs = [1]
+    x_coefs = clone(array_int_template, order, True)
+    x_coefs.data.as_ints[0] = 1
     
     int2bin_list = [None]*(order+1)
     int2bin_list[0] = array('b', [0]*bits_per_symbol)
@@ -98,16 +104,17 @@ cdef tuple RS_bin_tables(list primitive_poly):
     while exponent < order:
         
         # multiply the previous result by x
-        x_coefs = [0] + x_coefs
+        x_coefs.data.as_ints[exponent-1] = 0
+        x_coefs.data.as_ints[exponent] = 1
         
         # then find the remainder of its division by primitive polynomial
-        remainder = GF.GF_polynomial_div_remainder(x_coefs, primitive_poly, 
+        remainder = GF.GF_polynomial_div_remainder(x_coefs, primpoly_ar, 
                                           returnlen=polydegree, modulo=2)
         
         # reverse the array because we want the poly notation of exptable
         # to have the highest power of x at the start
-        rem_array = array('i', remainder[::-1])
-        remainder_int = aux.bin2int(rem_array, bits_per_symbol)
+        remainder_descending = array('i', remainder[::-1])
+        remainder_int = aux.bin2int(remainder_descending, bits_per_symbol)
         exptable[exponent] = remainder_int
         logtable[remainder_int] = exponent
         int2bin_list[exponent] = aux.int2bin(exponent, 
@@ -277,7 +284,6 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
              roots_Lambda_ddx_eval, error_poly, buffer_n
         int i, double_t = n-k, ome, lam, expnt, error, lenerr
     
-    
     buffer_n = clone(array_int_template, n, True)
     for i in range(n):
         buffer_n.data.as_ints[i] = i
@@ -424,7 +430,6 @@ cpdef array[char] RS_bin_encode(char[::1] msg,
 # decoded message of length k.
 # Input and output are in binary strings (0s and 1s).
 
-
 cpdef array[char] RS_bin_decode(char[::1] recv, 
                                 int n, int k, int bits_per_symbol,
                                 int[::1] exptable, int[::1] logtable, 
@@ -444,7 +449,6 @@ cpdef array[char] RS_bin_decode(char[::1] recv,
     real_n = (1 << bits_per_symbol) - 1
     real_k = real_n - (n-k)
     
-    
     # We only need k symbols out of n, so we cut the first n-k symbols
     # with systematic encoding and copy start from the end of parity bits 
     # (no matter what value ascending_poly takes, because first element always
@@ -459,7 +463,6 @@ cpdef array[char] RS_bin_decode(char[::1] recv,
         decoded = clone(array_char_template, bits_per_symbol*n, True)
         copy_start = 0
         copy_len = n
-    
     
     recvx = aux.binarray2intarray(recv, real_n, bits_per_symbol)
     # lenrecv is the real received length, that is the number of received bits
@@ -480,7 +483,6 @@ cpdef array[char] RS_bin_decode(char[::1] recv,
     else:
         for i in range(lenrecv):
             tempx.data.as_ints[i] = recvx.data.as_ints[lenrecv - i - 1]
-        
     
     remainder = GF.GF2_remainder_monic_divisor(tempx, gx,
                                             multiplication_table)
@@ -532,7 +534,6 @@ cpdef array[char] RS_bin_decode(char[::1] recv,
                     counter += 1
         
         return decoded
-            
     
     # if there are no errors
     else:
@@ -549,15 +550,15 @@ cpdef array[char] RS_bin_decode(char[::1] recv,
     
     # TODO non-systematic decoding
 
+
 ###############################################################################
 
-
-# q is a prime
+# Generate tables for non-binary Galois field.
+# q is a prime integer
 cpdef tuple RS_generate_tables(q):
     
     cdef:
         array[int] exptable, logtable, rem_array
-        list int2bin_list
         int order, n, exponent, i, j, generator_int, tempint
         np.ndarray[int, ndim=2] multiplication_table
     
@@ -574,7 +575,6 @@ cpdef tuple RS_generate_tables(q):
     # x**0 = 1, log(1) = 0
     exptable.data.as_ints[0] = 1
     logtable.data.as_ints[1] = 0
-    
     
     generator_int = 0
     # find a positive integer < q that is valid generator
@@ -610,3 +610,104 @@ cpdef tuple RS_generate_tables(q):
                                                       exptable,logtable)
             
     return exptable, logtable, multiplication_table
+
+
+cpdef tuple RS_generator(int n, int k, int q):
+
+    cdef:
+        tuple gf_tables
+        list generator_poly_alpha, generator_poly_int, x_coef
+        int i, j, t, alpha_degree, polylen, real_n
+        array[int] gpoly
+        int[::1] exptable, logtable
+        int[:,::1] multiplication_table
+
+    gf_tables = RS_generate_tables(q)
+    exptable, logtable, multiplication_table = gf_tables
+    
+    generator_poly_alpha = RS_generator_polynomial(1,n-k, q)
+    
+    polylen = len(generator_poly_alpha)
+    generator_poly_int = [0]*polylen
+    
+    real_n = q-1
+    for i in range(polylen):
+        x_coef = generator_poly_alpha[i]
+        alpha_degree = len(x_coef)-1
+        t = 0
+        
+        for j in range(alpha_degree+1):
+            if x_coef[j] != 0:
+                t += (x_coef[j] * exptable[j % real_n])
+        
+        generator_poly_int[i] = t % q
+    
+    gpoly = clone(array_int_template, polylen, False)
+    for i in range(polylen):
+        gpoly.data.as_ints[i] = generator_poly_int[i]
+    return gf_tables, gpoly
+
+
+# Reed-Solomon encoding for non-binary fields.
+# The input msg is an array of integers of length k.
+cpdef array[char] RS_encode(int[::1] msg, 
+                            int n, int k, int q,
+                            int[::1] gx, 
+                            systematic=True, ascending_poly=True):
+    
+    cdef:
+        array[int] tempx, rx, codeword
+        int double_t, lenmsg, i, counter, real_n, real_k
+    
+    # n-k = 2t
+    double_t = n-k
+    # length of message
+    lenmsg = len(msg)
+    
+    real_n = q
+    real_k = real_n - (n-k)
+    
+    # r(x) = (m(x) * x^{2t}) modulo g(x)
+    # c(x) = m(x) * x^{2t} - r(x)
+    
+    # We multiply message polynomial by x^(2t), then divide
+    # by generator polynomial, take the remainder and concatenate.
+    # During calculations, the array of tempx must contain polynomial
+    # coefficients in ascending order.
+    tempx = clone(array_int_template, n, True)
+    if ascending_poly:
+        for i in range(k):
+            tempx.data.as_ints[double_t + i] = msg[i]
+    else:
+        for i in range(k):
+            tempx.data.as_ints[double_t + k - i - 1] = msg[i]
+    
+    rx = GF.GF_polynomial_div_remainder(tempx, gx, 
+                                        returnlen=double_t, modulo=q)
+    codeword = clone(array_int_template, n, True)
+    
+    counter = 0
+    if ascending_poly:
+        # copy parity bits to buffer
+        # length of parity bits: bits per symbol * 2t
+        for i in range(double_t):
+            codeword.data.as_ints[counter] = rx.data.as_ints[i]
+            counter += 1
+        
+        # append original message to the end
+        for i in range(lenmsg):
+            codeword.data.as_ints[i+counter] = msg[i]
+    
+    else:
+        # original message at the start
+        for i in range(lenmsg):
+            codeword.data.as_ints[i] = msg[i]
+        
+        # parity bits at the end
+        # start from last element of rx
+        counter = lenmsg
+        for i in range(double_t):
+            codeword.data.as_ints[counter] = rx.data.as_ints[double_t - i - 1]
+            counter += 1
+    
+    return codeword

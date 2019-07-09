@@ -97,28 +97,30 @@ cpdef array[int] GF2_div_remainder(int[::1] dividend, int[::1] divisor, int n,
     lendivisor = len(divisor)
     
     # degree of dividend is already smaller than divisor
+    # no need for calculation, just allocate space for result and return
     if lendividend < lendivisor:
         if returnlen:
             remainder = clone(array_int_template, returnlen, True)
             if returnlen > lendividend:
-                for i in range(lendividend):
-                    remainder.data.as_ints[i] = dividend[i]
-                return remainder
+                t = lendividend
             else:
-                for i in range(returnlen):
-                    remainder.data.as_ints[i] = dividend[i]
-                return remainder
+                t = returnlen
+            
+            for i in range(t):
+                remainder.data.as_ints[i] = dividend[i]
+            return remainder
+            
         else:
             remainder = clone(array_int_template, lendividend, True)
             for i in range(lendividend):
                 remainder.data.as_ints[i] = dividend[i]
             return remainder
     
-    
     remainder = clone(array_int_template, lendividend, True)
     for i in range(lendividend):
         remainder.data.as_ints[i] = dividend[i]
     
+    # i denotes the index of leading coefficient (poly in ascending order)
     i = lendividend-1
     # trim leading zeros before first iteration
     while i >= 0 and remainder.data.as_ints[i] == 0:
@@ -183,32 +185,34 @@ cpdef array[int] GF2_remainder_monic_divisor(int[::1] dividend,
     
     cdef:
         int lendivisor = len(divisor), lendividend = len(dividend), \
-            lead_remainder, i, j
+            lead_remainder, i, j, t
         array[int] remainder, temparray
     
     # degree of dividend is already smaller than divisor
+    # no need for calculation, just allocate space for result and return
     if lendividend < lendivisor:
         if returnlen:
             remainder = clone(array_int_template, returnlen, True)
             if returnlen > lendividend:
-                for i in range(lendividend):
-                    remainder.data.as_ints[i] = dividend[i]
-                return remainder
+                t = lendividend
             else:
-                for i in range(returnlen):
-                    remainder.data.as_ints[i] = dividend[i]
-                return remainder
+                t = returnlen
+            
+            for i in range(t):
+                remainder.data.as_ints[i] = dividend[i]
+            return remainder
+            
         else:
             remainder = clone(array_int_template, lendividend, True)
             for i in range(lendividend):
                 remainder.data.as_ints[i] = dividend[i]
             return remainder
     
-    
     remainder = clone(array_int_template, lendividend, True)
     for i in range(lendividend):
         remainder.data.as_ints[i] = dividend[i]
     
+    # i denotes the index of leading coefficient (poly in ascending order)
     i = lendividend-1
     # trim leading zeros before first iteration
     while i >= 0 and remainder.data.as_ints[i] == 0:
@@ -411,48 +415,71 @@ cpdef list nested_polynomial_product(list a, list b, int modulo=0):
 # does not require GF tables.
 # Note that the coefficients are not in powers of alpha, just regular integers.
 # The first element represents x^0.
-cpdef list GF_polynomial_div_remainder(list dividend, list divisor,
-                                      int returnlen=0, int modulo=0):
-    
-    if len(dividend) < len(divisor):
-        if returnlen:
-            return dividend + [0]*(returnlen-len(dividend))
-        else:
-            return dividend
+cpdef array[int] GF_polynomial_div_remainder(int[::1] dividend, 
+                                             int[::1] divisor,
+                                             int returnlen=0, int modulo=0):
     
     cdef:
-        int quot, i, j, lendiv, lenrem
-        list remainder
+        int quotient, i, j, t, lendivisor, lendividend
+        array[int] remainder
     
-    remainder = dividend[:]
-    lendiv = len(divisor)
-    lenrem = len(remainder)
+    lendivisor = len(divisor)
+    lendividend = len(dividend)
     
-    i = lenrem-1
-    while i >= 0 and remainder[i] == 0:
+    if lendividend < lendivisor:
+        if returnlen:
+            remainder = clone(array_int_template, returnlen, True)
+            if returnlen > lendividend:
+                t = lendividend
+            else:
+                t = returnlen
+            
+            for i in range(t):
+                remainder.data.as_ints[i] = dividend[i]
+            return remainder
+            
+        else:
+            remainder = clone(array_int_template, lendividend, True)
+            for i in range(lendividend):
+                remainder.data.as_ints[i] = dividend[i]
+            return remainder
+    
+    # copy the contents of dividend to remainder
+    remainder = clone(array_int_template, lendividend, True)
+    for i in range(lendividend):
+        remainder.data.as_ints[i] = dividend[i]
+    
+    # i denotes the index of leading coefficient (poly in ascending order)
+    i = lendividend-1
+    while i >= 0 and remainder.data.as_ints[i] == 0:
         i -= 1
     
-    while i+1 >= lendiv:
-        quot = remainder[i] / divisor[lendiv-1]
+    # repeat while degree of divisor >= degree of remainder
+    while i+1 >= lendivisor:
+        quotient = remainder.data.as_ints[i] / divisor[lendivisor-1]
         
-        for j in range(lendiv):
+        for j in range(lendivisor):
+            remainder.data.as_ints[i-j] -= quotient*divisor[lendivisor-1-j]
             if modulo != 0:
-                remainder[i-j] = (remainder[i-j] 
-                                  - quot*divisor[lendiv-1-j]) % modulo
-            else:
-                remainder[i-j] = remainder[i-j] - quot*divisor[lendiv-1-j]
+                t = remainder.data.as_ints[i-j] % modulo
+                remainder.data.as_ints[i-j] = t
+                if t < 0:
+                    remainder.data.as_ints[i-j] = t + modulo
         
         # remove leading zero of the remainder
-        while i >= 0 and remainder[i] == 0:
+        while i >= 0 and remainder.data.as_ints[i] == 0:
             i -= 1
         
     # cut or pad the array to the desired length
     if returnlen:
-        if returnlen > len(remainder):
-            return remainder + [0]*(returnlen-len(remainder))
+        if returnlen > lendividend:
+            temparray = clone(array_int_template, returnlen, True)
+            for i in range(lendividend):
+                temparray.data.as_ints[i] = remainder.data.as_ints[i]
+                
+            return temparray
         else:
             return remainder[:returnlen]
-    # or return the full array
     else:
         return remainder
 

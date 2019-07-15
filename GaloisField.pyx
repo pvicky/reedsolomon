@@ -352,7 +352,7 @@ cpdef int GF2_poly_add(int[::1] poly_a, int len_a,
 # The input poly1 and poly2 are lists where coefficients are ordered from
 # lowest exponent to highest, i.e. first element is a^0, second is a^1, etc.
 # Result will be stored in array[int].
-cpdef array[int] polynomial_product(list poly1, list poly2):
+cpdef array[int] polynomial_product(int[::1] poly1, int[::1] poly2):
     cdef:
         int maxlen = 0, lenp1 = len(poly1), lenp2 = len(poly2), i, j, k
         array[int] result
@@ -371,12 +371,12 @@ cpdef array[int] polynomial_product(list poly1, list poly2):
 # Calculate product of two polynomials a and b, where each element of a and b
 # is a polynomial by itself (so they are in list of lists).
 # The resulting polynomial is ordered from lowest exponent to highest,
-# stored as nested list with depth = 2.
+# stored as list of array[int]
 cpdef list nested_polynomial_product(list a, list b, int modulo=0):
     cdef:
-        int len_a, len_b, k, i, j, maxlen
-        list result, result_k, coef_k_list
-        array[int] coef_k
+        int len_a, len_b, k, i, j, maxlen, t
+        list result, coef_k_list
+        array[int] coef_k, result_k
     
     len_a = len(a)
     len_b = len(b)
@@ -397,15 +397,16 @@ cpdef list nested_polynomial_product(list a, list b, int modulo=0):
                 if len(coef_k) > maxlen:
                     maxlen = len(coef_k)
         
-        result_k = [0]*maxlen
+        result_k = clone(array_int_template, maxlen, True)
         for coef_k in coef_k_list:
             j = len(coef_k)
             for i in range(j):
-                result_k[i] = (result_k[i] + coef_k.data.as_ints[i])
+                result_k.data.as_ints[i] += coef_k.data.as_ints[i]
             
         if modulo !=0:
             for i in range(maxlen):
-                result_k[i] = result_k[i] % modulo
+                t = ((result_k.data.as_ints[i] % modulo) + modulo) % modulo
+                result_k.data.as_ints[i] = t
         
         result[k] = result_k
     return result
@@ -459,12 +460,10 @@ cpdef array[int] GF_polynomial_div_remainder(int[::1] dividend,
         quotient = remainder.data.as_ints[i] / divisor[lendivisor-1]
         
         for j in range(lendivisor):
-            remainder.data.as_ints[i-j] -= quotient*divisor[lendivisor-1-j]
+            t = remainder.data.as_ints[i-j] - quotient*divisor[lendivisor-1-j]
             if modulo != 0:
-                t = remainder.data.as_ints[i-j] % modulo
-                remainder.data.as_ints[i-j] = t
-                if t < 0:
-                    remainder.data.as_ints[i-j] = t + modulo
+                t = ((t % modulo) + modulo) % modulo
+            remainder.data.as_ints[i-j] = t
         
         # remove leading zero of the remainder
         while i >= 0 and remainder.data.as_ints[i] == 0:
@@ -503,14 +502,17 @@ cpdef array[int] GF_poly_eval(int[::1] px, int n, int[::1] alphaexps,
         t = 0
         for j in range(degree+1):
             
-            t2 = t%n
+            t2 = t%(n-1)
             t2 = exptable[t2]
             
             result_i += (multiplication_table[px[j], t2])
             
             t += expnt
         
-        results.data.as_ints[i] = result_i % modulo
+        if modulo != 0:
+            result_i = ((result_i % modulo) + modulo) % modulo
+        
+        results.data.as_ints[i] = result_i
         numroots += result_i==0
     
     if rootsonly:
@@ -532,21 +534,34 @@ cpdef array[int] GF_poly_eval(int[::1] px, int n, int[::1] alphaexps,
 cpdef int GF_poly_add(int[::1] poly_a, int len_a,
                       int[::1] poly_b, int len_b, int modulo=0):
     cdef:
-        int i, lendiff
+        int i, lendiff, t
     
     if len_a > len_b:
         lendiff = len_a - len_b
         for i in range(len_b):
-            poly_a[i] = (poly_a[i] + poly_b[i]) % modulo
+            t = poly_a[i] + poly_b[i]
+            if modulo != 0:
+                t = ((t % modulo) + modulo) % modulo
+            poly_a[i] = t
+        for i in range(lendiff):
+            if modulo != 0:
+                t = ((poly_a[len_b + i] % modulo) + modulo) % modulo
+                poly_a[len_b + i] = t
         
         return len_a
 
     else:
         lendiff = len_b - len_a
         for i in range(len_a):
-            poly_a[i] = (poly_a[i] + poly_b[i]) % modulo
+            t = poly_a[i] + poly_b[i]
+            if modulo != 0:
+                t = ((t % modulo) + modulo) % modulo
+            poly_a[i] = t
         for i in range(lendiff):
-            poly_a[len_a + i] = poly_b[len_a + i]
+            t = poly_b[len_a + i]
+            if modulo != 0:
+                t = ((t % modulo) + modulo) % modulo
+            poly_a[len_a + i] = t
 
         return len_b
     

@@ -148,22 +148,32 @@ cpdef int hamming_distance(int[::1] str1, int[::1] str2):
 
 ###############################################################################
 
-# Finds the derivative of a given input polynomial.
-cpdef array[int] GF2_polynomial_derivative(int[::1] poly):
+# Find the derivative of a given input polynomial for GF(2^m) for an integer m.
+cpdef array[int] GF2_formal_derivative(int[::1] poly):
     
     cdef:
         int i, multiplier, degree = len(poly)-1
-        array[int] derivative = clone(array_int_template, degree, False)
+        array[int] derivative = clone(array_int_template, degree, True)
     
     for i in range(degree):
         multiplier = i+1
         
-        # if multiplier is odd take the coefficient as it is
-        if (multiplier & 1):
-            derivative.data.as_ints[i] = poly[i+1]
-        # if multiplier is even the coefficient of x becomes 0
-        else:
-            derivative.data.as_ints[i] = 0
+        derivative.data.as_ints[i] = (multiplier&1) * poly[i+1]
+        
+    return derivative
+
+
+cpdef array[int] formal_derivative(int[::1] poly, int modulo):
+    
+    cdef:
+        int i, t, multiplier, degree = len(poly)-1
+        array[int] derivative = clone(array_int_template, degree, True)
+    
+    for i in range(degree):
+        multiplier = i+1
+        t = (multiplier * poly[i+1]) % modulo
+        derivative.data.as_ints[i] = t
+        
     return derivative
 
 

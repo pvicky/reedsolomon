@@ -32,13 +32,15 @@ tables required for the encoding and decoding.
 cdef list RS_generator_polynomial(int lower, int upper, int q):
     cdef:
         list t, poly, gx, gx_list = []
+        array[int] t_ar
         int i
     
     # [[0,-1], [1]] is interpreted as 
     # {(0 * a^0) + (-1 * a^1)} * (x^0) +  {1 * a^0} * (x^1)
     # or simplified written as (x - a)
     for i in range(lower, upper+1):
-        t = [[0]*i+[-1], [1]]
+        t_ar = array('i', [0]*i+[-1])
+        t = [t_ar, array('i', [1])]
         gx_list.append(t)
     
     gx = gx_list[0]
@@ -141,9 +143,9 @@ cpdef tuple RS_bin_generator(int n, int k, list primitive_poly):
         tuple gf_tables
         list int2bin_list
         int[:,::1] multiplication_table
-        list generator_poly_alpha, generator_poly_int, x_coef
+        list generator_poly_alpha, generator_poly_int
         int i, j, t, alpha_degree, polylen, real_n
-        array[int] gpoly
+        array[int] gpoly, x_coef
         int[::1] exptable, logtable
 
     gf_tables = RS_bin_tables(primitive_poly)
@@ -177,8 +179,8 @@ cpdef tuple RS_bin_generator(int n, int k, list primitive_poly):
 
 
 # calculating distance of Berlekamp-Massey algorithm at kth iteration
-cdef int BM_delta(int[::1] syndromes, int[::1] cx, int lencx,
-                  int[:,::1] multiplication_table, int k):
+cdef int BM_delta_bin(int[::1] syndromes, int[::1] cx, int lencx,
+                      int[:,::1] multiplication_table, int k):
     cdef int i, t, d = 0
     
     # No bound checking as we rely on the fact that syndrome array is always
@@ -191,9 +193,9 @@ cdef int BM_delta(int[::1] syndromes, int[::1] cx, int lencx,
 
 # Berlekamp-Massey algorithm, finding the error locator polynomial of 
 # a codeword given syndromes.
-cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k, 
-                                 int[::1] exptable, int[::1] logtable,
-                                 int[:,::1] multiplication_table):
+cdef array[int] Berlekamp_Massey_bin(int[::1] syndromes, int n, int k, 
+                                     int[::1] exptable, int[::1] logtable,
+                                     int[:,::1] multiplication_table):
     
     cdef:
         array[int] cx, px, tx, subtractby
@@ -221,7 +223,7 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
     # k=0 is used for initial state so we start from k=1
     # this k is different to k given in argument
     for k in range(1,N+1):
-        delta = BM_delta(syndromes, cx, lencx, multiplication_table, k)
+        delta = BM_delta_bin(syndromes, cx, lencx, multiplication_table, k)
         
         if delta == 0:
             l += 1
@@ -274,9 +276,9 @@ cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k,
 # Forney's algorithm, finding the error polynomial e(x)
 # given a known error locator polynomial.
 # As r(x) = c(x)+e(x), we subtract r(x) by e(x) to get the correct c(x).
-cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
-                       int[::1] exptable, int[::1] logtable,
-                       int[:,::1] multiplication_table):
+cdef array[int] Forney_bin(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
+                           int[::1] exptable, int[::1] logtable,
+                           int[:,::1] multiplication_table):
     
     cdef:
         array[int] Syndrome_x_Lambda_poly, x_exp_2t, Omega_poly, \
@@ -299,7 +301,7 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, int n, int k,
                                                 x_exp_2t,
                                                 multiplication_table)
     
-    Lambda_poly_ddx = aux.GF2_polynomial_derivative(Lambda_poly)
+    Lambda_poly_ddx = aux.GF2_formal_derivative(Lambda_poly)
     
     # roots of L(x) are all exp where L(\alpha^{exp}) evaluates to 0
     # evaluate L(x) for all alpha^i, i=0,1,...,n
@@ -506,13 +508,11 @@ cpdef array[char] RS_bin_decode(char[::1] recv,
         
         # find error locator polynomial with Berlekamp-Massey
         # then use Forney to calculate the error polynomial
-        Lx = Berlekamp_Massey(Syn, real_n, real_k, 
-                              exptable, logtable, multiplication_table)
-        ex = Forney(Lx, Syn, real_n, real_k,
-                    exptable, logtable, multiplication_table)
+        Lx = Berlekamp_Massey_bin(Syn, real_n, real_k, 
+                                  exptable, logtable, multiplication_table)
+        ex = Forney_bin(Lx, Syn, real_n, real_k,
+                        exptable, logtable, multiplication_table)
         
-        # c(x) + e(x) = r(x)
-        # c(x) = r(x) - e(x) ---> r(x) ^ e(x)
         # length not checked for speed, ensure they are same before this point
         for i in range(lenrecvx):
             cx.data.as_ints[i] = (tempx.data.as_ints[i] ^
@@ -616,9 +616,9 @@ cpdef tuple RS_generator(int n, int k, int q):
 
     cdef:
         tuple gf_tables
-        list generator_poly_alpha, generator_poly_int, x_coef
+        list generator_poly_alpha, generator_poly_int
         int i, j, t, alpha_degree, polylen, real_n
-        array[int] gpoly
+        array[int] gpoly, x_coef
         int[::1] exptable, logtable
         int[:,::1] multiplication_table
 
@@ -650,13 +650,13 @@ cpdef tuple RS_generator(int n, int k, int q):
 
 # Reed-Solomon encoding for non-binary fields.
 # The input msg is an array of integers of length k.
-cpdef array[char] RS_encode(int[::1] msg, 
+cpdef array[int] RS_encode(int[::1] msg, 
                             int n, int k, int q,
                             int[::1] gx, 
                             systematic=True, ascending_poly=True):
     
     cdef:
-        array[int] tempx, rx, codeword
+        array[int] tempx, rx, parity, codeword
         int double_t, lenmsg, i, counter, real_n, real_k
     
     # n-k = 2t
@@ -684,6 +684,12 @@ cpdef array[char] RS_encode(int[::1] msg,
     
     rx = GF.GF_polynomial_div_remainder(tempx, gx, 
                                         returnlen=double_t, modulo=q)
+    
+    # because parity is = 0 - remainder
+    parity = clone(array_int_template, double_t, True)
+    for i in range(double_t):
+        parity.data.as_ints[i] = q - rx.data.as_ints[i]
+    
     codeword = clone(array_int_template, n, True)
     
     counter = 0
@@ -691,7 +697,7 @@ cpdef array[char] RS_encode(int[::1] msg,
         # copy parity bits to buffer
         # length of parity bits: bits per symbol * 2t
         for i in range(double_t):
-            codeword.data.as_ints[counter] = rx.data.as_ints[i]
+            codeword.data.as_ints[counter] = parity.data.as_ints[i]
             counter += 1
         
         # append original message to the end
@@ -704,10 +710,260 @@ cpdef array[char] RS_encode(int[::1] msg,
             codeword.data.as_ints[i] = msg[i]
         
         # parity bits at the end
-        # start from last element of rx
+        # start from last element of parity
         counter = lenmsg
         for i in range(double_t):
-            codeword.data.as_ints[counter] = rx.data.as_ints[double_t - i - 1]
+            codeword.data.as_ints[counter] = parity.data.as_ints[double_t-i-1]
             counter += 1
     
     return codeword
+
+
+cdef int BM_delta(int[::1] syndromes, int[::1] cx, int lencx,
+                  int[:,::1] multiplication_table, int k,
+                  modulo=0):
+    cdef int i, t, d = 0
+    
+    for i in range(lencx):
+        t = syndromes[k-1-i]
+        d += (multiplication_table[t, cx[i]])
+    if modulo != 0:
+        d = d%modulo
+    return d
+
+
+cdef array[int] Berlekamp_Massey(int[::1] syndromes, int n, int k, int q,
+                                 int[::1] exptable, int[::1] logtable,
+                                 int[:,::1] multiplication_table):
+    
+    cdef:
+        array[int] cx, px, tx, subtractby
+        int N, L, l, dm, delta, dm_inv, dx_dm_inv, \
+            lencx, lenpx, i, subtractlen
+    
+    N = n-k
+    
+    cx = clone(array_int_template, N, True)
+    cx.data.as_ints[0] = 1
+    px = clone(array_int_template, N, True)
+    px.data.as_ints[0] = 1
+    
+    tx = clone(array_int_template, N, True)
+    subtractby = clone(array_int_template, N, True)
+    
+    lenpx, lencx = 1, 1
+    L, l, dm = 0, 1, 1
+    
+    for k in range(1,N+1):
+        delta = BM_delta(syndromes, cx, lencx, multiplication_table, k,
+                         modulo=q)
+        
+        if delta == 0:
+            l += 1
+        
+        else:
+            dm_inv = exptable[((q-1) - logtable[dm]) % (q-1)]
+            dx_dm_inv = (multiplication_table[delta][dm_inv])
+            
+            zero(subtractby)
+            for i in range(lenpx):
+                subtractby.data.as_ints[l + i] = -(multiplication_table
+                                            [dx_dm_inv, px.data.as_ints[i]])
+            subtractlen = lenpx + l
+            
+            if 2*L >= k:
+
+                GF.GF_poly_add(cx, lencx, subtractby, subtractlen, modulo=q)
+                l += 1
+            
+            else:
+                for i in range(lencx):
+                    tx.data.as_ints[i] = cx.data.as_ints[i]
+                
+                GF.GF_poly_add(cx, lencx, subtractby, subtractlen, modulo=q)
+                
+                px, tx = tx, px
+                
+                lenpx, lencx = lencx, subtractlen
+                
+                dm = delta
+                L = k-L
+                l = 1
+    
+    tx = clone(array_int_template, lencx, False)
+    for i in range(lencx):
+        tx.data.as_ints[i] = cx.data.as_ints[i]
+    return tx
+
+
+cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes, 
+                       int n, int k, int q,
+                       int[::1] exptable, int[::1] logtable,
+                       int[:,::1] multiplication_table):
+    
+    cdef:
+        array[int] Syndrome_x_Lambda_poly, x_exp_2t, Omega_poly, \
+             Lambda_poly_ddx, Lx_roots, error_locs, roots_Omega_eval, \
+             roots_Lambda_ddx_eval, error_poly, buffer_n
+        int i, double_t = n-k, ome, lam, expnt, error, lenerr
+    
+    buffer_n = clone(array_int_template, n, True)
+    for i in range(n):
+        buffer_n.data.as_ints[i] = i
+    
+    # divide syndrome*Lx by x^{2t} and take the remainder
+    x_exp_2t = clone(array_int_template, double_t+1, True)
+    x_exp_2t.data.as_ints[double_t] = 1
+    
+    Syndrome_x_Lambda_poly = GF.polynomial_product(Lambda_poly, Syndromes)
+#                                             multiplication_table
+    
+    Omega_poly = GF.GF_polynomial_div_remainder(Syndrome_x_Lambda_poly,
+                                                x_exp_2t, modulo=q)
+#                                                multiplication_table
+    
+    Lambda_poly_ddx = aux.formal_derivative(Lambda_poly, q)
+    
+    # roots of L(x) are all exp where L(\alpha^{exp}) evaluates to 0
+    # evaluate L(x) for all alpha^i, i=0,1,...,n
+    Lx_roots = GF.GF_poly_eval(Lambda_poly, n, buffer_n,
+                               exptable, multiplication_table,
+                               modulo=q,
+                               rootsonly=True)
+    
+    roots_Omega_eval = GF.GF_poly_eval(Omega_poly, n, Lx_roots,
+                                     exptable,multiplication_table, modulo=q)
+    
+    roots_Lambda_ddx_eval = GF.GF_poly_eval(Lambda_poly_ddx, n, Lx_roots,
+                                          exptable,multiplication_table, modulo=q)
+    
+    lenerr = len(Lx_roots)
+    # error locations are given by the exponent of inverse of Lambda(x) roots
+    # error_locs = [(order-i)%order for i in Lx_roots]
+    error_locs = clone(array_int_template, lenerr, True)
+    for i in range(lenerr):
+        error_locs.data.as_ints[i] = ((q-1) - Lx_roots.data.as_ints[i]) % (q-1)
+    
+    # 0 is no error
+    zero(buffer_n)
+    
+    for i in range(lenerr):
+        ome = roots_Omega_eval.data.as_ints[i]
+        lam = roots_Lambda_ddx_eval.data.as_ints[i]
+        
+        # unreachable? roots cannot be zero
+        if ome==0 or lam==0:
+            error = 0
+        else:
+            expnt = (logtable[ome] - logtable[lam] + (q-1)) % (q-1)
+            error = exptable[expnt]
+        
+        buffer_n.data.as_ints[error_locs.data.as_ints[i]] = error
+    
+    return buffer_n
+
+
+cpdef array[int] RS_decode(int[::1] recv, 
+                           int n, int k, int q,
+                           int[::1] exptable, int[::1] logtable, 
+                           int[:,::1] multiplication_table,
+                           int[::1] gx, 
+                           systematic=True, trim_parity=True,
+                           ascending_poly=True):
+    
+    cdef:
+        array[int] recvx, tempx, remainder, Syn, Lx, cx, ex, buffer_2t, \
+                   decoded, tarray
+        int real_n, real_k, i, j, counter, double_t, sumremainder, \
+            lenrecv, lenrecvx, copy_start, copy_len
+    
+    double_t = n-k
+    real_n = q
+    real_k = real_n - (n-k)
+    
+    # We only need k symbols out of n, so we cut the first n-k symbols
+    # with systematic encoding and copy start from the end of parity bits 
+    # (no matter what value ascending_poly takes, because first element always
+    # represent lowest coefficient in internal calculations).
+    # copy_len indicates how many symbols to be copied, not bits
+    if trim_parity:
+        decoded = clone(array_int_template, k, True)
+        copy_start = double_t
+        copy_len = k
+    # just correct the codeword, but keep parity bits intact
+    else:
+        decoded = clone(array_int_template, n, True)
+        copy_start = 0
+        copy_len = n
+    
+    lenrecv = len(recv)
+    
+    tempx = clone(array_int_template, real_n, True)
+    if ascending_poly:
+        for i in range(lenrecv):
+            tempx.data.as_ints[i] = recv[i]
+    else:
+        for i in range(lenrecv):
+            tempx.data.as_ints[i] = recv[lenrecv - i - 1]
+    
+    remainder = GF.GF_polynomial_div_remainder(tempx, gx,
+                                               returnlen=double_t, 
+                                               modulo=q)
+    
+    sumremainder = 0
+    for i in range(double_t):
+        sumremainder += remainder.data.as_ints[i]
+    
+    # if sumremainder != 0, there are errors
+    if sumremainder:
+        cx = clone(array_int_template, lenrecv, True)
+        
+        # Calculate RS syndromes by evaluating the codeword polynomial.
+        # Generator poly assumed to be (x-alpha)(x-alpha^2)*...*(x-alpha^(n-k))
+        # so we evaluate rx starting from alpha^1 for S_1 to alpha^(n-k)
+        # for the last entry.
+        buffer_2t = clone(array_int_template, double_t, True)
+        for i in range(double_t):
+            buffer_2t.data.as_ints[i] = i+1
+        
+        Syn = GF.GF_poly_eval(tempx, real_n, buffer_2t,
+                            exptable, multiplication_table, modulo=q)
+        
+        # find error locator polynomial with Berlekamp-Massey
+        # then use Forney to calculate the error polynomial
+        Lx = Berlekamp_Massey(Syn, real_n, real_k, q, 
+                              exptable, logtable, multiplication_table)
+        
+        ex = Forney(Lx, Syn, real_n, real_k, q,
+                    exptable, logtable, multiplication_table)
+        
+        # length not checked for speed, ensure they are same before this point
+        for i in range(lenrecv):
+            cx.data.as_ints[i] = (tempx.data.as_ints[i] +
+                                        ex.data.as_ints[i]) % q
+        
+        counter = 0
+        if ascending_poly:
+            for i in range(copy_start, copy_start+copy_len):
+                decoded.data.as_ints[counter] = cx.data.as_ints[i]
+                counter += 1
+        else:
+            for i in range(copy_start+copy_len - 1, copy_start - 1, -1):
+                decoded.data.as_ints[counter] = cx.data.as_ints[i]
+                counter += 1
+                
+        return decoded
+    
+    # if there are no errors
+    else:
+        if ascending_poly:
+            counter = copy_start
+            for i in range(0, copy_len):
+                decoded.data.as_ints[i] = recv[counter]
+                counter += 1
+        else:
+            for i in range(0, copy_len):
+                decoded.data.as_ints[i] = recv[i]
+            
+        return decoded
+    

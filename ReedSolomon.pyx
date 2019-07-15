@@ -309,9 +309,11 @@ cdef array[int] Forney_bin(int[::1] Lambda_poly, int[::1] Syndromes, int n, int 
                              exptable, multiplication_table,
                              rootsonly=True)
     
+    # evaluate roots of Lambda(x) on Omega(x)
     roots_Omega_eval = GF.GF2_poly_eval(Omega_poly, n, Lx_roots,
                                      exptable,multiplication_table)
     
+    # evaluate roots of Lambda(x) on Lambda'(x)
     roots_Lambda_ddx_eval = GF.GF2_poly_eval(Lambda_poly_ddx, n, Lx_roots,
                                           exptable,multiplication_table)
     
@@ -333,6 +335,8 @@ cdef array[int] Forney_bin(int[::1] Lambda_poly, int[::1] Syndromes, int n, int 
         if ome==0 or lam==0:
             error = 0
         else:
+            # error coefficient = - Omega(x) / Lambda'(x)
+            # we can discard negative since we use XOR for binary
             expnt = (logtable[ome] - logtable[lam] +n) % n
             error = exptable[expnt]
         
@@ -513,6 +517,7 @@ cpdef array[char] RS_bin_decode(char[::1] recv,
         ex = Forney_bin(Lx, Syn, real_n, real_k,
                         exptable, logtable, multiplication_table)
         
+        # c(x) = r(x) - e(x)
         # length not checked for speed, ensure they are same before this point
         for i in range(lenrecvx):
             cx.data.as_ints[i] = (tempx.data.as_ints[i] ^
@@ -816,12 +821,11 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes,
     x_exp_2t.data.as_ints[double_t] = 1
     
     Syndrome_x_Lambda_poly = GF.polynomial_product(Lambda_poly, Syndromes)
-#                                             multiplication_table
     
     Omega_poly = GF.GF_polynomial_div_remainder(Syndrome_x_Lambda_poly,
                                                 x_exp_2t, modulo=q)
-#                                                multiplication_table
     
+    # Lambda'(x) is formal derivative of Lambda(x)
     Lambda_poly_ddx = aux.formal_derivative(Lambda_poly, q)
     
     # roots of L(x) are all exp where L(\alpha^{exp}) evaluates to 0
@@ -831,9 +835,11 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes,
                                modulo=q,
                                rootsonly=True)
     
+    # evaluate roots of Lambda(x) on Omega(x)
     roots_Omega_eval = GF.GF_poly_eval(Omega_poly, n, Lx_roots,
                                      exptable,multiplication_table, modulo=q)
     
+    # evaluate roots of Lambda(x) on Lambda'(x)
     roots_Lambda_ddx_eval = GF.GF_poly_eval(Lambda_poly_ddx, n, Lx_roots,
                                           exptable,multiplication_table, modulo=q)
     
@@ -855,8 +861,9 @@ cdef array[int] Forney(int[::1] Lambda_poly, int[::1] Syndromes,
         if ome==0 or lam==0:
             error = 0
         else:
+            # error coefficient = - Omega(x) / Lambda'(x)
             expnt = (logtable[ome] - logtable[lam] + (q-1)) % (q-1)
-            error = exptable[expnt]
+            error = - exptable[expnt]
         
         buffer_n.data.as_ints[error_locs.data.as_ints[i]] = error
     
@@ -937,10 +944,11 @@ cpdef array[int] RS_decode(int[::1] recv,
         ex = Forney(Lx, Syn, real_n, real_k, q,
                     exptable, logtable, multiplication_table)
         
+        # c(x) = r(x) - e(x)
         # length not checked for speed, ensure they are same before this point
         for i in range(lenrecv):
-            cx.data.as_ints[i] = (tempx.data.as_ints[i] +
-                                        ex.data.as_ints[i]) % q
+            cx.data.as_ints[i] = (((tempx.data.as_ints[i] -
+                                      ex.data.as_ints[i]) % q) + q ) % q
         
         counter = 0
         if ascending_poly:

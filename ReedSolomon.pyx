@@ -693,7 +693,7 @@ cpdef array[int] RS_encode(int[::1] msg,
     # because parity is = 0 - remainder
     parity = clone(array_int_template, double_t, True)
     for i in range(double_t):
-        parity.data.as_ints[i] = q - rx.data.as_ints[i]
+        parity.data.as_ints[i] = (q - rx.data.as_ints[i]) % q
     
     codeword = clone(array_int_template, n, True)
     
